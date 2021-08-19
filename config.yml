@@ -1,0 +1,13 @@
+use_gpu: true
+
+data:
+    sr: 40000
+    shift_ms: 10
+    fftl: 2048
+    num_mels: 160
+    hop_length: 400
+    top_db: 120
+
+directories:
+    exps: exps/
+
