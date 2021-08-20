@@ -27,6 +27,7 @@ import copy
 import string
 from matplotlib import rc
 import matplotlib
+import csv
 
 
 def collect_files(directory, verbose=False):
@@ -111,3 +112,41 @@ class Mel_log_spect(object):
         feature = self.get_Mel_log_spect(y, n_mels=self.num_mels)
         audio = self.audio_from_spect(feature)
         librosa.output.write_wav(write_path, y=audio, sr=self.sr, norm=True)
+
+class Metadata(object):
+    def __init__(self):
+        """"""
+        self.config = get_config()
+        self.load_dicova()
+
+    def load_dicova(self):
+        lines = []
+        with open(os.path.join(self.config.directories.dicova_root, 'metadata.csv'), newline='') as f:
+            reader = csv.reader(f, delimiter=' ')
+            for i, row in enumerate(reader):
+                if i > 0:
+                    lines.append(row)
+        metadata = {}
+        for line in lines:
+            metadata[line[0]] = {'Covid_status': line[1], 'Gender': line[2]}
+        self.dicova_metadata = metadata
+
+    def get_metadata(self, file, dataset='DiCOVA'):
+        if dataset == 'DiCOVA':
+            name = file.split('/')[-1]
+            name = name.split('.')[0]
+            metadata = self.dicova_metadata[name]
+            return metadata
+
+def main():
+    """"""
+    # files = collect_files('DiCOVA/AUDIO/breathing')
+    # meta = Metadata()
+    # for file in files:
+    #     metadata = meta.get_metadata(file, dataset='DiCOVA')
+
+
+
+
+if __name__ == "__main__":
+    main()
