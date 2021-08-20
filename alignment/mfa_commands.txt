@@ -1,3 +1,8 @@
+### Set the library path (must do this everytime, DO NOT EXPORT) ###
+LD_LIBRARY_PATH=/home/harvill2/anaconda3/envs/aligner/lib/
+refer to: https://stackoverflow.com/questions/13428910/how-to-set-the-environmental-variable-ld-library-path-in-linux
+refer to: https://github.com/MontrealCorpusTools/Montreal-Forced-Aligner/issues/217, cassiobatista's comment on setting library path works
+
 ### validate the data prep ###
 input format: mfa validate corpus_directory dictionary_path [optional_acoustic_model_path]
 my command (ignore acoustics): mfa validate /ws/ifp-54_2/hasegawa/harvill2/Fall_2021/Fa21DiCOVA-II/alignment/DiCOVA /ws/ifp-54_2/hasegawa/harvill2/Fall_2021/Fa21DiCOVA-II/alignment/english.dict english --temp_directory /ws/ifp-54_2/hasegawa/harvill2/Fall_2021/Fa21DiCOVA-II/alignment/tmp --num_jobs 6 --ignore_acoustics
