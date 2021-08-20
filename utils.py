@@ -73,6 +73,9 @@ def dump(value, filename, type='joblib', verbose=False):
     if verbose:
         print('Done.')
 
+def dump_audio(audio, write_path, sr):
+    sf.write(write_path, audio, sr, "PCM_16")
+
 class Mel_log_spect(object):
     def __init__(self):
         self.config = get_config()
