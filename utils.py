@@ -138,12 +138,64 @@ class Metadata(object):
             metadata = self.dicova_metadata[name]
             return metadata
 
+class Partition(object):
+    def __init__(self):
+        """"""
+        self.config = get_config()
+        self.metadata = Metadata()
+        self.load_dicova()
+
+    def load_dicova(self):
+        files = collect_files(os.path.join(self.config.directories.dicova_root, 'LISTS'))
+        folds = {}
+        for file in files:
+            name = file.split('/')[-1][:-4]
+            pieces = name.split('_')
+            train_val = pieces[0]
+            fold = pieces[1]
+            if fold in folds:
+                folds[fold][train_val] = file
+            else:
+                folds[fold] = {train_val: file}
+        fold_files = {}
+        for fold, partition in folds.items():
+            train = partition['train']
+            with open(train) as f:
+                train_files = f.readlines()
+            train_files = [x.strip() for x in train_files]
+            """Get train positives and train negatives"""
+            train_pos = []
+            train_neg = []
+            for file in train_files:
+                meta = self.metadata.get_metadata(file, dataset='DiCOVA')
+                if meta['Covid_status'] == 'p':
+                    train_pos.append(file)
+                elif meta['Covid_status'] == 'n':
+                    train_neg.append(file)
+            val = partition['val']
+            with open(val) as f:
+                val_files = f.readlines()
+            val_files = [x.strip() for x in val_files]
+            val_pos = []
+            val_neg = []
+            for file in val_files:
+                meta = self.metadata.get_metadata(file, dataset='DiCOVA')
+                if meta['Covid_status'] == 'p':
+                    val_pos.append(file)
+                elif meta['Covid_status'] == 'n':
+                    val_neg.append(file)
+            fold_files[fold] = {'train_pos': train_pos, 'train_neg': train_neg,
+                                'val_pos': val_pos, 'val_neg': val_neg}
+        self.dicova_partition = fold_files
+
 def main():
     """"""
     # files = collect_files('DiCOVA/AUDIO/breathing')
     # meta = Metadata()
     # for file in files:
     #     metadata = meta.get_metadata(file, dataset='DiCOVA')
+    # partition = Partition()
+
 
 
 
