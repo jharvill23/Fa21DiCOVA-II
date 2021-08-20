@@ -12,3 +12,35 @@ directories:
     exps: exps/
     dicova_root: DiCOVA/
 
+pretraining2:
+    lr: 0.0001
+    future_frames: 10
+    hidden_size: 400
+    linear_hidden_size: 500
+    encoder1_num_layers: 2
+    encoder2_num_layers: 2
+    batch_first: true
+    dropout: 0.1
+
+post_pretraining_classifier:
+    lr: 0.0001
+    hidden_size: 200
+    linear_hidden_size: 300
+    encoder_num_layers: 2
+    batch_first: true
+    dropout: 0.1
+    opensmile_dropout: 0.1
+    bidirectional: true
+    incorrect_scaler: 15
+
+classifier:
+    lr: 0.0001
+    hidden_size: 200
+    linear_hidden_size: 300
+    encoder_num_layers: 2
+    batch_first: true
+    dropout: 0.1
+    opensmile_dropout: 0.1
+    bidirectional: true
+    incorrect_scaler: 15
+
