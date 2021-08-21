@@ -8,28 +8,34 @@ import utils
 config = utils.get_config()
 
 class Model(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, args):
         super(Model, self).__init__()
         self.config = config
+        self.args = args
         model = eval(self.config.model.name)
-        self.model = model(config)
+        self.model = model(self.config, self.args)
 
     def forward(self, padded_input):
         return self.model(padded_input)
 
 
 class PreTrainer2(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, args):
         super(PreTrainer2, self).__init__()
         self.config = config
+        self.args = args
+        if self.args.MODEL_INPUT_TYPE == 'spectrogram':
+            self.input_size = self.config.data.num_mels
+        elif self.args.MODEL_INPUT_TYPE == 'energy':
+            self.input_size = 1
         self.num_mels = self.config.data.num_mels
         self.hidden_size = self.config.pretraining2.hidden_size
         self.linear_hidden_size = self.config.pretraining2.linear_hidden_size
         self.encoder1_num_layers = self.config.pretraining2.encoder1_num_layers
         self.encoder2_num_layers = self.config.pretraining2.encoder2_num_layers
         self.batch_first = self.config.pretraining2.batch_first
-        self.dropout = self.config.pretraining.dropout
-        self.encoder_lstm_1 = nn.LSTM(input_size=self.num_mels, hidden_size=self.hidden_size,
+        self.dropout = self.config.pretraining2.dropout
+        self.encoder_lstm_1 = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size,
                              num_layers=self.encoder1_num_layers, batch_first=self.batch_first,
                              dropout=self.dropout, bidirectional=False)
         self.encoder_lstm_2 = nn.LSTM(input_size=self.hidden_size, hidden_size=self.hidden_size,
@@ -49,9 +55,10 @@ class PreTrainer2(nn.Module):
         return x, intermediate_state
 
 class PostPreTrainClassifier(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, args):
         super(PostPreTrainClassifier, self).__init__()
         self.config = config
+        self.args = args
         self.input_size = self.config.pretraining2.hidden_size
         self.hidden_size = self.config.post_pretraining_classifier.hidden_size
         self.linear_hidden_size = self.config.post_pretraining_classifier.linear_hidden_size
@@ -89,10 +96,14 @@ class PostPreTrainClassifier(nn.Module):
         return x
 
 class Classifier(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, args):
         super(Classifier, self).__init__()
         self.config = config
-        self.input_size = self.config.data.num_mels
+        self.args = args
+        if self.args.MODEL_INPUT_TYPE == 'spectrogram':
+            self.input_size = self.config.data.num_mels
+        elif self.args.MODEL_INPUT_TYPE == 'energy':
+            self.input_size = 1
         self.hidden_size = self.config.post_pretraining_classifier.hidden_size
         self.linear_hidden_size = self.config.post_pretraining_classifier.linear_hidden_size
         self.encoder_num_layers = self.config.post_pretraining_classifier.encoder_num_layers

@@ -31,6 +31,7 @@ class DiCOVA_Dataset(object):
         self.incorrect_scaler = self.config.post_pretraining_classifier.incorrect_scaler
         self.specaug_probability = params['specaugment']
         self.time_warp = params['time_warp']
+        self.input_type = params['input_type']
 
     def __len__(self):
         'Denotes the total number of samples'
@@ -69,9 +70,21 @@ class DiCOVA_Dataset(object):
             # plt.subplot(212)
             # plt.imshow(aug_feats.T)
             # plt.show()
-            feats = self.to_GPU(torch.from_numpy(aug_feats))
+            feats = aug_feats
         else:
-            feats = self.to_GPU(torch.from_numpy(feats))
+            """"""
+
+        if self.input_type == 'energy':
+            """Take the mean along the feature dimension"""
+            energy = np.mean(feats, axis=1)
+            # plt.subplot(211)
+            # plt.imshow(feats.T)
+            # plt.subplot(212)
+            # plt.plot(energy)
+            # plt.show()
+            feats = energy
+
+        feats = self.to_GPU(torch.from_numpy(feats))
         feats = feats.to(torch.float32)
 
         """Get incorrect_scaler value"""
@@ -103,6 +116,8 @@ class DiCOVA_Dataset(object):
         if self.mode != 'test':
             labels = torch.stack([x for x in labels])
             scalers = torch.stack([x for x in scalers])
+        if self.input_type == 'energy':
+            spects = torch.unsqueeze(spects, dim=2)
         return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers}
 
 
