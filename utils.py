@@ -73,8 +73,27 @@ def dump(value, filename, type='joblib', verbose=False):
     if verbose:
         print('Done.')
 
+def load(filename, type='joblib', verbose=False):
+    if verbose:
+        print('Loading file from disk...')
+    if type == 'pickle':
+        with open(filename, 'rb') as handle:
+            value = pickle.load(handle)
+    elif type == 'joblib':
+        value = joblib.load(filename)
+    else:
+        raise ValueError('Load type not implemented...')
+    if verbose:
+        print('Done.')
+    return value
+
 def dump_audio(audio, write_path, sr):
     sf.write(write_path, audio, sr, "PCM_16")
+
+def get_class2index_and_index2class():
+    class2index = {'p': 0, 'n': 1}
+    index2class = {0: 'p', 1: 'n'}
+    return class2index, index2class
 
 class Mel_log_spect(object):
     def __init__(self):
@@ -141,6 +160,13 @@ class Metadata(object):
             metadata = self.dicova_metadata[name]
             return metadata
 
+    def get_feature_metadata(self, file, dataset='DiCOVA'):
+        if dataset == 'DiCOVA':
+            name = file.split('/')[-1]
+            name = name.split('_')[0]
+            metadata = self.dicova_metadata[name]
+            return metadata
+
 class Partition(object):
     def __init__(self):
         """"""
@@ -149,6 +175,7 @@ class Partition(object):
         self.load_dicova()
 
     def load_dicova(self):
+        print('Loading DiCOVA partition information...')
         files = collect_files(os.path.join(self.config.directories.dicova_root, 'LISTS'))
         folds = {}
         for file in files:
@@ -190,6 +217,7 @@ class Partition(object):
             fold_files[fold] = {'train_pos': train_pos, 'train_neg': train_neg,
                                 'val_pos': val_pos, 'val_neg': val_neg}
         self.dicova_partition = fold_files
+        print('Done.')
 
 def main():
     """"""
