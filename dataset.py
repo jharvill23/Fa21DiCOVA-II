@@ -32,6 +32,7 @@ class DiCOVA_Dataset(object):
         self.specaug_probability = params['specaugment']
         self.time_warp = params['time_warp']
         self.input_type = params['input_type']
+        self.args = params['args']
 
     def __len__(self):
         'Denotes the total number of samples'
@@ -74,6 +75,19 @@ class DiCOVA_Dataset(object):
         else:
             """"""
 
+        """NEW: speech clips are VERY long so for training speedup/augmentation we take small window as training example"""
+        if self.mode == 'train':
+            old_feats = feats
+            clip_length = feats.shape[0]
+            section_length = int(self.args.TRAIN_CLIP_FRACTION * clip_length)
+            new_start = int(random.uniform(0, clip_length-section_length))
+            feats = feats[new_start: new_start+section_length]
+        # plt.subplot(211)
+        # plt.imshow(feats.T)
+        # plt.subplot(212)
+        # plt.imshow(old_feats.T)
+        # plt.show()
+
         if self.input_type == 'energy':
             """Take the mean along the feature dimension"""
             energy = np.mean(feats, axis=1)
@@ -83,6 +97,12 @@ class DiCOVA_Dataset(object):
             # plt.plot(energy)
             # plt.show()
             feats = energy
+
+        # plt.subplot(211)
+        # plt.plot(feats)
+        # plt.subplot(212)
+        # plt.plot(old_feats)
+        # plt.show()
 
         feats = self.to_GPU(torch.from_numpy(feats))
         feats = feats.to(torch.float32)
@@ -119,6 +139,110 @@ class DiCOVA_Dataset(object):
         if self.input_type == 'energy':
             spects = torch.unsqueeze(spects, dim=2)
         return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers}
+
+class LibriSpeech_Dataset(object):
+    def __init__(self, config, params):
+        """Get the data and supporting files"""
+        self.config = config
+        'Initialization'
+        self.list_IDs = params['files']
+        self.mode = params["mode"]
+        self.input_type = params['input_type']
+        self.args = params['args']
+
+    def __len__(self):
+        'Denotes the total number of samples'
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        'Get the data item'
+        file = self.list_IDs[index]
+
+        """We want to load the audio file. Then we want to perform specaugment."""
+        feats = utils.load(file, type='pickle')
+
+        """NEW: speech clips are VERY long so for training speedup/augmentation we take small window as training example"""
+        if self.mode == 'train':
+            old_feats = feats
+            clip_length = feats.shape[0]
+            section_length = int(self.args.TRAIN_CLIP_FRACTION * clip_length)
+            new_start = int(random.uniform(0, clip_length-section_length))
+            feats = feats[new_start: new_start+section_length]
+        # plt.subplot(211)
+        # plt.imshow(feats.T)
+        # plt.subplot(212)
+        # plt.imshow(old_feats.T)
+        # plt.show()
+
+        feats = self.to_GPU(torch.from_numpy(feats))
+        feats = feats.to(torch.float32)
+
+        return file, feats
+
+    def to_GPU(self, tensor):
+        if self.config.use_gpu == True:
+            tensor = tensor.cuda()
+            return tensor
+        else:
+            return tensor
+
+    def collate(self, data):
+        files = [item[0] for item in data]
+        spects = [item[1] for item in data]
+        spects = pad_sequence(spects, batch_first=True, padding_value=0)
+        return {'files': files, 'spects': spects}
+
+class COUGHVID_Dataset(object):
+    def __init__(self, config, params):
+        """Get the data and supporting files"""
+        self.config = config
+        'Initialization'
+        self.list_IDs = params['files']
+        self.mode = params["mode"]
+        self.input_type = params['input_type']
+        self.args = params['args']
+
+    def __len__(self):
+        'Denotes the total number of samples'
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        'Get the data item'
+        file = self.list_IDs[index]
+
+        """We want to load the audio file. Then we want to perform specaugment."""
+        feats = utils.load(file, type='pickle')
+
+        """NEW: speech clips are VERY long so for training speedup/augmentation we take small window as training example"""
+        if self.mode == 'train':
+            old_feats = feats
+            clip_length = feats.shape[0]
+            section_length = int(self.args.TRAIN_CLIP_FRACTION * clip_length)
+            new_start = int(random.uniform(0, clip_length-section_length))
+            feats = feats[new_start: new_start+section_length]
+        # plt.subplot(211)
+        # plt.imshow(feats.T)
+        # plt.subplot(212)
+        # plt.imshow(old_feats.T)
+        # plt.show()
+
+        feats = self.to_GPU(torch.from_numpy(feats))
+        feats = feats.to(torch.float32)
+
+        return file, feats
+
+    def to_GPU(self, tensor):
+        if self.config.use_gpu == True:
+            tensor = tensor.cuda()
+            return tensor
+        else:
+            return tensor
+
+    def collate(self, data):
+        files = [item[0] for item in data]
+        spects = [item[1] for item in data]
+        spects = pad_sequence(spects, batch_first=True, padding_value=0)
+        return {'files': files, 'spects': spects}
 
 
 def main():

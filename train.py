@@ -14,7 +14,7 @@ from torch.utils import data
 import json
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
-from dataset import DiCOVA_Dataset
+from dataset import DiCOVA_Dataset, LibriSpeech_Dataset, COUGHVID_Dataset
 import torch.nn.functional as F
 import copy
 from scipy.special import softmax
@@ -222,16 +222,24 @@ class Solver(object):
             return train_files, val_files
         elif self.args.TRAIN_DATASET == 'COUGHVID':
             """"""
-            # TODO: implement this
+            training_files = utils.collect_files(self.args.FEAT_DIR)
+            train_val_split = int(0.985 * len(training_files))
+            train_files = training_files[0:train_val_split]
+            val_files = training_files[train_val_split:]
+            return train_files, val_files
         elif self.args.TRAIN_DATASET == 'LibriSpeech':
             """"""
-            # TODO: implement this
+            training_files = utils.collect_files(self.args.FEAT_DIR)
+            train_val_split = int(0.985 * len(training_files))
+            train_files = training_files[0:train_val_split]
+            val_files = training_files[train_val_split:]
+            return train_files, val_files
 
     def forward_pass(self, batch_data):
         spects = batch_data['spects']
         files = batch_data['files']
-        labels = batch_data['labels']
-        scalers = batch_data['scalers']
+        # labels = batch_data['labels']
+        # scalers = batch_data['scalers']
         if self.args.FROM_PRETRAINING:
             _, intermediate = self.pretrained(spects)
         else:
@@ -355,7 +363,8 @@ class Solver(object):
                                                                     'metadata_object': self.metadata,
                                                                     'specaugment': self.model_hyperparameters.specaug_probability,
                                                                     'time_warp': self.args.TIME_WARP,
-                                                                    'input_type': self.args.MODEL_INPUT_TYPE})
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
             train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
                                         shuffle=True, collate_fn=train_data.collate, drop_last=True)
             self.index2class = train_data.index2class
@@ -365,16 +374,47 @@ class Solver(object):
                                                                   'metadata_object': self.metadata,
                                                                   'specaugment': 0.0,
                                                                   'time_warp': self.args.TIME_WARP,
-                                                                  'input_type': self.args.MODEL_INPUT_TYPE})
+                                                                  'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                  'args': self.args})
             val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
                                       shuffle=True, collate_fn=val_data.collate, drop_last=True)
             return train_gen, val_gen
         elif self.args.TRAIN_DATASET == 'COUGHVID':
             """"""
-            # TODO: implement this
+            train_files_list = train
+            val_files_list = val
+            """Make dataloader"""
+            train_data = COUGHVID_Dataset(config=self.config, params={'files': train_files_list,
+                                                                      'mode': 'train',
+                                                                      'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                      'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            val_data = COUGHVID_Dataset(config=self.config, params={'files': val_files_list,
+                                                                    'mode': 'val',
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
         elif self.args.TRAIN_DATASET == 'LibriSpeech':
             """"""
-            # TODO: implement this
+            train_files_list = train
+            val_files_list = val
+            """Make dataloader"""
+            train_data = LibriSpeech_Dataset(config=self.config, params={'files': train_files_list,
+                                                                         'mode': 'train',
+                                                                         'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                         'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            val_data = LibriSpeech_Dataset(config=self.config, params={'files': val_files_list,
+                                                                       'mode': 'val',
+                                                                       'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                       'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
 
     def train(self):
         iterations = 0
@@ -663,20 +703,21 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy')
-    parser.add_argument('--TRAIN', action='store_true', default=True)
-    parser.add_argument('--LOAD_MODEL', action='store_true', default=False)
+    parser.add_argument('--TRIAL', type=str, default='dummy_pretrain2')
+    parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
+    parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
     parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
-    parser.add_argument('--PRETRAINING', action='store_true', default=True)
-    parser.add_argument('--FROM_PRETRAINING', action='store_true', default=False)
-    parser.add_argument('--LOSS', type=str, default='APC')
-    parser.add_argument('--MODALITY', type=str, default='speech')
-    parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
+    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=True)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--LOSS', type=str, default='APC')  # crossentropy, APC
+    parser.add_argument('--MODALITY', type=str, default='cough')
+    parser.add_argument('--FEAT_DIR', type=str, default='feats/COUGHVID')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
-    parser.add_argument('--TIME_WARP', action='store_true', default=False)
+    parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy
-    parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
+    parser.add_argument('--TRAIN_DATASET', type=str, default='COUGHVID')  # DiCOVA, COUGHVID, LibriSpeech
+    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.75)  # randomly shorten clips during training (speech, breathing)
     args = parser.parse_args()
     main(args)

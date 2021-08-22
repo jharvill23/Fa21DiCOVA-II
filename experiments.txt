@@ -1,0 +1,47 @@
+### train.py arguments ###
+parser.add_argument('--TRIAL', type=str, default='dummy')
+parser.add_argument('--TRAIN', action='store_true', default=True)
+parser.add_argument('--LOAD_MODEL', action='store_true', default=False)
+parser.add_argument('--FOLD', type=str, default='1')
+parser.add_argument('--RESTORE_PATH', type=str, default='')
+parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
+parser.add_argument('--PRETRAINING', action='store_true', default=True)
+parser.add_argument('--FROM_PRETRAINING', action='store_true', default=False)
+parser.add_argument('--LOSS', type=str, default='APC')
+parser.add_argument('--MODALITY', type=str, default='speech')
+parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
+parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
+parser.add_argument('--TIME_WARP', action='store_true', default=False)
+parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy
+parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
+parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+
+### SPEECH, fold 1, positive/negative sampling ratio 1.0 ###
+# no pretraining, yes specaugment with no timewarp, spectrogram input, crossentropy loss
+python3 train.py --TRIAL "speech_nopretrain_notimewarp_yesspecaug_spect_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE spectrogram --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+# no pretraining, yes specaugment with no timewarp, energy input, crossentropy loss
+python3 train.py --TRIAL "speech_nopretrain_notimewarp_yesspecaug_energy_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE energy --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+
+### COUGH, fold 1, positive/negative sampling ratio 1.0 ###
+# no pretraining, yes specaugment with no timewarp, spectrogram input, crossentropy loss
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_nopretrain_notimewarp_yesspecaug_spect_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE spectrogram --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY cough --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.85
+# no pretraining, yes specaugment with no timewarp, energy input, crossentropy loss
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_nopretrain_notimewarp_yesspecaug_energy_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE energy --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY cough --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.85
+
+### BREATHING, fold 1, positive/negative sampling ratio 1.0 ###
+# no pretraining, yes specaugment with no timewarp, spectrogram input, crossentropy loss
+python3 train.py --TRIAL "breathing_nopretrain_notimewarp_yesspecaug_spect_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE spectrogram --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY breathing --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+# no pretraining, yes specaugment with no timewarp, energy input, crossentropy loss
+python3 train.py --TRIAL "breathing_nopretrain_notimewarp_yesspecaug_energy_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE energy --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY breathing --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+
+### SPEECH, pretraining ###
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_spect_APC" --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+
+### COUGH, pretraining ###
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_pretrain_10ff_spect_APC" --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY cough --FEAT_DIR feats/COUGHVID --TRAIN_DATASET COUGHVID --TIME_WARP false --TRAIN_CLIP_FRACTION 0.8
+
+
+
+
+
+

@@ -28,6 +28,7 @@ import string
 from matplotlib import rc
 import matplotlib
 import csv
+import argparse
 
 
 def collect_files(directory, verbose=False):
@@ -102,6 +103,15 @@ def get_class2index_and_index2class():
     index2class = {0: 'p', 1: 'n'}
     return class2index, index2class
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def scoring(refs, sys_outs, out_file):
     """
