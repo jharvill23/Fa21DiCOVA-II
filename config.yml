@@ -12,6 +12,9 @@ directories:
     exps: exps/
     dicova_root: DiCOVA/
 
+model:
+    name: dummy
+
 pretraining2:
     lr: 0.0001
     future_frames: 10
@@ -21,6 +24,11 @@ pretraining2:
     encoder2_num_layers: 2
     batch_first: true
     dropout: 0.1
+    log_step: 100
+    model_save_step: 5000
+    num_epochs: 1000
+    batch_size: 3
+    specaug_probability: 0.0
 
 post_pretraining_classifier:
     lr: 0.0001
@@ -31,7 +39,12 @@ post_pretraining_classifier:
     dropout: 0.1
     opensmile_dropout: 0.1
     bidirectional: true
-    incorrect_scaler: 15
+    incorrect_scaler: 1
+    log_step: 100
+    model_save_step: 500
+    num_epochs: 1000
+    batch_size: 3
+    specaug_probability: 1.0
 
 classifier:
     lr: 0.0001
@@ -42,5 +55,10 @@ classifier:
     dropout: 0.1
     opensmile_dropout: 0.1
     bidirectional: true
-    incorrect_scaler: 15
+    incorrect_scaler: 1
+    log_step: 100
+    model_save_step: 500
+    num_epochs: 1000
+    batch_size: 3
+    specaug_probability: 1.0
 

@@ -1,4 +1,6 @@
 import os
+import random
+
 from tqdm import tqdm
 import numpy as np
 import joblib
@@ -12,7 +14,7 @@ from torch.utils import data
 import json
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
-from dataset import DiCOVA_Dataset
+from dataset import DiCOVA_Dataset, LibriSpeech_Dataset, COUGHVID_Dataset
 import torch.nn.functional as F
 import copy
 from scipy.special import softmax
@@ -78,16 +80,21 @@ class Solver(object):
             os.mkdir(self.val_scores_dir)
 
         """Training Data"""
-        self.training_data = dicova.DiCOVA(config=self.config)
+        self.metadata = utils.Metadata()
+        self.partition = utils.Partition()
 
         """Partition file"""
         if self.args.TRAIN:
             # copy config
             shutil.copy(src='config.yml', dst=os.path.join(self.exp_dir, 'config.yml'))
+            # save args to file
+            args_dump_path = os.path.join(self.exp_dir, 'args.txt')
+            with open(args_dump_path, 'w') as f:
+                json.dump(args.__dict__, f, indent=2)
 
         # Step size.
-        self.log_step = self.config.train.log_step
-        self.model_save_step = self.config.train.model_save_step
+        self.log_step = self.model_hyperparameters.log_step
+        self.model_save_step = self.model_hyperparameters.model_save_step
 
         # Build the model
         self.build_model()
@@ -97,31 +104,28 @@ class Solver(object):
             self.build_tensorboard()
 
     def build_model(self):
-
-        ##########################################################
-        ##########################################################
-        ##########################################################
-        ####################### YOU ARE HERE #####################
-        ##########################################################
-        ##########################################################
-        ##########################################################
-
-
-
-        """Build the model"""
-        pretrain_config = copy.deepcopy(self.config)
-        pretrain_config.model.name = 'PreTrainer2'
-        """Load the weights"""
-        self.pretrained = model.Model(pretrain_config)
-        # pretrain_checkpoint = self._load('./exps/pretraining_trial_2/models/20000-G.ckpt')
-        # pretrain_checkpoint = self._load('./exps/pretraining_trial_3_10_future_frames/models/140000-G.ckpt')
-        pretrain_checkpoint = self._load('./exps/pretraining_trial_4_coughvid_10_future_frames/models/19500-G.ckpt')
-        self.pretrained.load_state_dict(pretrain_checkpoint['model'])
-        """Freeze pretrainer"""
-        for param in self.pretrained.parameters():
-            param.requires_grad = False
-        self.pretrained.to(self.device)
-        self.G = model.CTCmodel(self.config)
+        if self.args.FROM_PRETRAINING:
+            """Build the model"""
+            pretrain_config = copy.deepcopy(self.config)
+            pretrain_config.model.name = 'PreTrainer2'
+            """Load the weights"""
+            self.pretrained = model.Model(pretrain_config, self.args)
+            pretrain_checkpoint = self._load(self.args.RESTORE_PRETRAINER_PATH)
+            self.pretrained.load_state_dict(pretrain_checkpoint['model'])
+            """Freeze pretrainer"""
+            for param in self.pretrained.parameters():
+                param.requires_grad = False
+            self.pretrained.to(self.device)
+            """Make trainer have input to take pretrained feature output dimension"""
+            train_config = copy.deepcopy(self.config)
+            train_config.model.name = 'PostPreTrainClassifier'
+        elif self.args.PRETRAINING:
+            train_config = copy.deepcopy(self.config)
+            train_config.model.name = 'PreTrainer2'
+        else:
+            train_config = copy.deepcopy(self.config)
+            train_config.model.name = 'Classifier'
+        self.G = model.Model(train_config, self.args)
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -154,7 +158,6 @@ class Solver(object):
     def restore_model(self, G_path):
         """Restore the model"""
         print('Loading the trained models... ')
-        # G_path = None
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -169,30 +172,100 @@ class Solver(object):
         """Reset the gradient buffers."""
         self.g_optimizer.zero_grad()
 
-    def convert_filelist_to_augmented_list(self, filelist):
-        newlist = []
-        for file in filelist:
-            filename = file.split('/')[-1][:-4]
-            for i in range(self.config.data.num_augment_examples):
-                new_path = os.path.join(self.config.directories.dicova_augmented_feats, filename + '_' + str(i) + '.pkl')
-                if os.path.exists(new_path):
-                    newlist.append(new_path)
-                stop = None
-        return newlist
+    def get_absolute_filepaths(self, files):
+        new_files = []
+        for file in files:
+            new_name = os.path.join(self.args.FEAT_DIR, file + '_' + self.args.MODALITY + '.pkl')
+            assert os.path.exists(new_name)
+            new_files.append(new_name)
+        return new_files
+
+    def upsample_positive_class(self, negative, positive):
+        """Balance the data by seeing positive COVID examples more often"""
+        random.shuffle(negative)
+        random.shuffle(positive)
+        long_negative = []
+        long_positive = []
+        for i in range(30):
+            long_negative += negative
+            long_positive += positive
+        negative_iter = iter(long_negative)
+        positive_iter = iter(long_positive)
+        resampled_files = []
+        positive_probability = self.args.POS_NEG_SAMPLING_RATIO / (1.0 + self.args.POS_NEG_SAMPLING_RATIO)
+        pos_file_count = 0
+        neg_file_count = 0
+        for i in range(len(negative)*3):
+            random_draw = random.uniform(0, 1)
+            if random_draw < positive_probability:
+                resampled_files.append(next(positive_iter))
+                pos_file_count += 1
+            else:
+                resampled_files.append(next(negative_iter))
+                neg_file_count += 1
+        return resampled_files
 
     def get_train_test(self):
-        self.training_data.feature_path_partition()
-        partition = self.training_data.feat_partition
-        partition = partition[self.fold]
+        if self.args.TRAIN_DATASET == 'DiCOVA':
+            partition = self.partition.dicova_partition
+            partition = partition[self.fold]
 
-        """For each list we need to take the filenames and get the augmented file locations"""
-        partition['train_pos'] = self.convert_filelist_to_augmented_list(partition['train_pos'])
-        partition['train_neg'] = self.convert_filelist_to_augmented_list(partition['train_neg'])
+            # Get absolute filepaths depending on modality
+            partition['train_pos'] = self.get_absolute_filepaths(partition['train_pos'])
+            partition['train_neg'] = self.get_absolute_filepaths(partition['train_neg'])
+            partition['val_pos'] = self.get_absolute_filepaths(partition['val_pos'])
+            partition['val_neg'] = self.get_absolute_filepaths(partition['val_neg'])
 
-        train_files = {'positive': partition['train_pos'], 'negative': partition['train_neg']}
-        # test_files = {'positive': partition['test_positive'], 'negative': partition['test_negative']}
-        val_files = {'positive': partition['val_pos'], 'negative': partition['val_neg']}
-        return train_files, val_files
+            train_files = {'positive': partition['train_pos'], 'negative': partition['train_neg']}
+            # test_files = {'positive': partition['test_positive'], 'negative': partition['test_negative']}
+            val_files = {'positive': partition['val_pos'], 'negative': partition['val_neg']}
+            return train_files, val_files
+        elif self.args.TRAIN_DATASET == 'COUGHVID':
+            """"""
+            training_files = utils.collect_files(self.args.FEAT_DIR)
+            train_val_split = int(0.985 * len(training_files))
+            train_files = training_files[0:train_val_split]
+            val_files = training_files[train_val_split:]
+            return train_files, val_files
+        elif self.args.TRAIN_DATASET == 'LibriSpeech':
+            """"""
+            training_files = utils.collect_files(self.args.FEAT_DIR)
+            train_val_split = int(0.985 * len(training_files))
+            train_files = training_files[0:train_val_split]
+            val_files = training_files[train_val_split:]
+            return train_files, val_files
+
+    def forward_pass(self, batch_data):
+        spects = batch_data['spects']
+        files = batch_data['files']
+        # labels = batch_data['labels']
+        # scalers = batch_data['scalers']
+        if self.args.FROM_PRETRAINING:
+            _, intermediate = self.pretrained(spects)
+        else:
+            intermediate = spects
+        predictions = self.G(intermediate)
+        return predictions
+
+    def compute_loss(self, predictions, batch_data):
+        if self.args.LOSS == 'APC':
+            """Compute Autoregressive Predictive Coding Loss between output features and shifted input features"""
+            model_output, intermediate_state = predictions
+            input_features = batch_data['spects']
+            input_length = input_features.shape[1]
+            """Now we need to trim the input features for MSE error between output"""
+            input_features = input_features[:, self.config.pretraining2.future_frames:, :]
+            model_output = model_output[:, 0: input_length - self.config.pretraining2.future_frames, :]
+            loss = F.mse_loss(input=input_features, target=model_output)
+        elif self.args.LOSS == 'crossentropy':
+            """Compute Cross Entropy Loss"""
+            loss_function = nn.CrossEntropyLoss(reduction='none')
+            labels = batch_data['labels']
+            loss = loss_function(predictions, labels)
+            scalers = batch_data['scalers']
+            """Multiply loss of positive labels by incorrect scaler"""
+            loss = loss * scalers
+        return loss
 
     def val_loss(self, val, iterations):
         val_loss = 0
@@ -202,124 +275,158 @@ class Solver(object):
         FN = 0
         ground_truth = []
         pred_scores = []
-        for batch_number, features in tqdm(enumerate(val)):
+        for batch_number, batch_data in tqdm(enumerate(val)):
             # try:
-                spects = features['spects']
-                opensmile = features['opensmile']
-                files = features['files']
-                labels = features['labels']
-                scalers = features['scalers']
+                files = batch_data['files']
                 self.G = self.G.eval()
-                _, intermediate = self.pretrained(spects)
-                data_dict = {'spect': intermediate, 'opensmile': opensmile}
-                predictions = self.G(data_dict)
-                loss = self.crossent_loss(predictions, labels)
-                """Multiply loss of positive labels by """
-                loss = loss * scalers
+                predictions = self.forward_pass(batch_data=batch_data)
+                loss = self.compute_loss(predictions=predictions, batch_data=batch_data)
                 val_loss += loss.sum().item()
 
-                predictions = np.squeeze(predictions.detach().cpu().numpy())
-                max_preds = np.argmax(predictions, axis=1)
-                scores = softmax(predictions, axis=1)
-                pred_value = [self.index2class[x] for x in max_preds]
+                if not self.args.PRETRAINING:
+                    predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    max_preds = np.argmax(predictions, axis=1)
+                    scores = softmax(predictions, axis=1)
+                    pred_value = [self.index2class[x] for x in max_preds]
 
-                info = [self.training_data.get_file_metadata(x) for x in files]
+                    info = [self.metadata.get_feature_metadata(x) for x in files]
 
-                for i, file in enumerate(files):
-                    filekey = file.split('/')[-1][:-4]
-                    gt = info[i]['Covid_status']
-                    score = scores[i, self.class2index['p']]
-                    ground_truth.append(filekey + ' ' + gt)
-                    pred_scores.append(filekey + ' ' + str(score))
+                    for i, file in enumerate(files):
+                        filekey = file.split('/')[-1][:-4]
+                        gt = info[i]['Covid_status']
+                        score = scores[i, self.class2index['p']]
+                        ground_truth.append(filekey + ' ' + gt)
+                        pred_scores.append(filekey + ' ' + str(score))
 
-                for i, entry in enumerate(info):
-                    if entry['Covid_status'] == 'p':
-                        if pred_value[i] == 'p':
-                            TP += 1
-                        elif pred_value[i] == 'n':
-                            FN += 1
-                    elif entry['Covid_status'] == 'n':
-                        if pred_value[i] == 'n':
-                            TN += 1
-                        elif pred_value[i] == 'p':
-                            FP += 1
+                    for i, entry in enumerate(info):
+                        if entry['Covid_status'] == 'p':
+                            if pred_value[i] == 'p':
+                                TP += 1
+                            elif pred_value[i] == 'n':
+                                FN += 1
+                        elif entry['Covid_status'] == 'n':
+                            if pred_value[i] == 'n':
+                                TN += 1
+                            elif pred_value[i] == 'p':
+                                FP += 1
 
             # except:
             #     """"""
-        """Sort the lists in alphabetical order"""
-        ground_truth.sort()
-        pred_scores.sort()
+        if not self.args.PRETRAINING:
+            """Sort the lists in alphabetical order"""
+            ground_truth.sort()
+            pred_scores.sort()
 
-        """Write the files"""
-        gt_path = os.path.join(self.val_scores_dir, 'val_labels_' + str(iterations))
-        score_path = os.path.join(self.val_scores_dir, 'scores_' + str(iterations))
+            """Write the files"""
+            gt_path = os.path.join(self.val_scores_dir, 'val_labels_' + str(iterations))
+            score_path = os.path.join(self.val_scores_dir, 'scores_' + str(iterations))
 
-        for path in [gt_path, score_path]:
-            with open(path, 'w') as f:
-                if path == gt_path:
-                    for item in ground_truth:
-                        f.write("%s\n" % item)
-                elif path == score_path:
-                    for item in pred_scores:
-                        f.write("%s\n" % item)
-        try:
-            out_file_path = os.path.join(self.val_scores_dir, 'outfile_' + str(iterations) + '.pkl')
-            utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
-            auc = utils.summary(folname=self.val_scores_dir, scores=out_file_path, iterations=iterations)
-        except:
-            auc = 0
+            for path in [gt_path, score_path]:
+                with open(path, 'w') as f:
+                    if path == gt_path:
+                        for item in ground_truth:
+                            f.write("%s\n" % item)
+                    elif path == score_path:
+                        for item in pred_scores:
+                            f.write("%s\n" % item)
+            try:
+                out_file_path = os.path.join(self.val_scores_dir, 'outfile_' + str(iterations) + '.pkl')
+                utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
+                auc = utils.summary(folname=self.val_scores_dir, scores=out_file_path, iterations=iterations)
+            except:
+                auc = 0
 
-        if TP + FP > 0:
-            Prec = TP / (TP + FP)
+            if TP + FP > 0:
+                Prec = TP / (TP + FP)
+            else:
+                Prec = 0
+            if TP + FN > 0:
+                Rec = TP / (TP + FN)
+            else:
+                Rec = 0
+
+            acc = (TP + TN) / (TP + TN + FP + FN)
+
+            return val_loss, Prec, Rec, acc, auc
         else:
-            Prec = 0
-        if TP + FN > 0:
-            Rec = TP / (TP + FN)
-        else:
-            Rec = 0
+            return val_loss, 0, 0, 0, 0
 
-        acc = (TP + TN) / (TP + TN + FP + FN)
-
-        return val_loss, Prec, Rec, acc, auc
+    def get_train_val_generators(self, train, val):
+        """Return generators for training with different datasets"""
+        if self.args.TRAIN_DATASET == 'DiCOVA':
+            # Adjust how often we see positive examples
+            train_files_list = self.upsample_positive_class(negative=train['negative'], positive=train['positive'])
+            val_files_list = val['positive'] + val['negative']
+            """Make dataloader"""
+            train_data = DiCOVA_Dataset(config=self.config, params={'files': train_files_list,
+                                                                    'mode': 'train',
+                                                                    'metadata_object': self.metadata,
+                                                                    'specaugment': self.model_hyperparameters.specaug_probability,
+                                                                    'time_warp': self.args.TIME_WARP,
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            self.index2class = train_data.index2class
+            self.class2index = train_data.class2index
+            val_data = DiCOVA_Dataset(config=self.config, params={'files': val_files_list,
+                                                                  'mode': 'val',
+                                                                  'metadata_object': self.metadata,
+                                                                  'specaugment': 0.0,
+                                                                  'time_warp': self.args.TIME_WARP,
+                                                                  'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                  'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
+        elif self.args.TRAIN_DATASET == 'COUGHVID':
+            """"""
+            train_files_list = train
+            val_files_list = val
+            """Make dataloader"""
+            train_data = COUGHVID_Dataset(config=self.config, params={'files': train_files_list,
+                                                                      'mode': 'train',
+                                                                      'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                      'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            val_data = COUGHVID_Dataset(config=self.config, params={'files': val_files_list,
+                                                                    'mode': 'val',
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
+        elif self.args.TRAIN_DATASET == 'LibriSpeech':
+            """"""
+            train_files_list = train
+            val_files_list = val
+            """Make dataloader"""
+            train_data = LibriSpeech_Dataset(config=self.config, params={'files': train_files_list,
+                                                                         'mode': 'train',
+                                                                         'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                         'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            val_data = LibriSpeech_Dataset(config=self.config, params={'files': val_files_list,
+                                                                       'mode': 'val',
+                                                                       'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                       'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
 
     def train(self):
         iterations = 0
         """Get train/test"""
         train, val = self.get_train_test()
-        train_files_list = train['positive'] + train['negative']
-        val_files_list = val['positive'] + val['negative']
-        self.crossent_loss = nn.CrossEntropyLoss(reduction='none')
-        for epoch in range(self.config.train.num_epochs):
-            """Make dataloader"""
-            train_data = Dataset(config=self.config, params={'files': train_files_list,
-                                                        'mode': 'train',
-                                                        'data_object': self.training_data,
-                                                        'specaugment': self.config.train.specaugment})
-            train_gen = data.DataLoader(train_data, batch_size=config.train.batch_size,
-                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
-            self.index2class = train_data.index2class
-            self.class2index = train_data.class2index
-            val_data = Dataset(config=self.config, params={'files': val_files_list,
-                                                      'mode': 'val',
-                                                      'data_object': self.training_data,
-                                                      'specaugment': False})
-            val_gen = data.DataLoader(val_data, batch_size=config.train.batch_size,
-                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
-
-            for batch_number, features in enumerate(train_gen):
+        for epoch in range(self.model_hyperparameters.num_epochs):
+            train_gen, val_gen = self.get_train_val_generators(train, val)
+            for batch_number, batch_data in enumerate(train_gen):
                 try:
-                    spects = features['spects']
-                    opensmile = features['opensmile']
-                    files = features['files']
-                    labels = features['labels']
-                    scalers = features['scalers']
                     self.G = self.G.train()
-                    _, intermediate = self.pretrained(spects)
-                    data_dict = {'spect': intermediate, 'opensmile': opensmile}
-                    predictions = self.G(data_dict)
-                    loss = self.crossent_loss(predictions, labels)
-                    """Multiply loss of positive labels by """
-                    loss = loss * scalers
+                    predictions = self.forward_pass(batch_data=batch_data)
+                    loss = self.compute_loss(predictions=predictions, batch_data=batch_data)
                     # Backward and optimize.
                     self.reset_grad()
                     loss.sum().backward()
@@ -330,7 +437,6 @@ class Solver(object):
                         print(str(iterations) + ', loss: ' + str(normalized_loss))
                         if self.use_tensorboard:
                             self.logger.add_scalar('loss', normalized_loss, iterations)
-                    # try:
                     if iterations % self.model_save_step == 0:
                         """Calculate validation loss"""
                         val_loss, Prec, Rec, acc, auc = self.val_loss(val=val_gen, iterations=iterations)
@@ -341,8 +447,6 @@ class Solver(object):
                             self.logger.add_scalar('Rec', Rec, iterations)
                             self.logger.add_scalar('Accuracy', acc, iterations)
                             self.logger.add_scalar('AUC', auc, iterations)
-                    # except:
-                    #     """"""
                     """Save model checkpoints."""
                     if iterations % self.model_save_step == 0:
                         G_path = os.path.join(self.model_save_dir, '{}-G.ckpt'.format(iterations))
@@ -352,7 +456,7 @@ class Solver(object):
 
                     iterations += 1
                 except:
-                    """"""
+                    print('GPU out of memory or other training error...')
 
     def val_scores(self):
         self.evaluation_dir = os.path.join(self.exp_dir, 'evaluations')
@@ -373,7 +477,7 @@ class Solver(object):
         pred_scores = []
 
         """Make dataloader"""
-        train_data = Dataset(config=config, params={'files': train_files_list,
+        train_data = DiCOVA_Dataset(config=config, params={'files': train_files_list,
                                                     'mode': 'train',
                                                     'data_object': self.training_data,
                                                     'specaugment': self.config.train.specaugment})
@@ -381,7 +485,7 @@ class Solver(object):
                                     shuffle=True, collate_fn=train_data.collate, drop_last=True)
         self.index2class = train_data.index2class
         self.class2index = train_data.class2index
-        val_data = Dataset(config=config, params={'files': val_files_list,
+        val_data = DiCOVA_Dataset(config=config, params={'files': val_files_list,
                                                   'mode': 'train',
                                                   'data_object': self.training_data,
                                                   'specaugment': False})
@@ -599,12 +703,21 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy')
-    parser.add_argument('--TRAIN', action='store_true', default=True)
-    parser.add_argument('--LOAD_MODEL', action='store_true', default=False)
+    parser.add_argument('--TRIAL', type=str, default='dummy_pretrain2')
+    parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
+    parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--PRETRAINING', action='store_true', default=False)
-    parser.add_argument('--FROM_PRETRAINING', action='store_true', default=False)
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
+    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=True)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--LOSS', type=str, default='APC')  # crossentropy, APC
+    parser.add_argument('--MODALITY', type=str, default='cough')
+    parser.add_argument('--FEAT_DIR', type=str, default='feats/COUGHVID')
+    parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
+    parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
+    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy
+    parser.add_argument('--TRAIN_DATASET', type=str, default='COUGHVID')  # DiCOVA, COUGHVID, LibriSpeech
+    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.75)  # randomly shorten clips during training (speech, breathing)
     args = parser.parse_args()
     main(args)
