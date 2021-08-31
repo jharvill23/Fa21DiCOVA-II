@@ -14,7 +14,7 @@ from torch.utils import data
 import json
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
-from dataset import DiCOVA_Dataset, LibriSpeech_Dataset, COUGHVID_Dataset
+from dataset import DiCOVA_Dataset, DiCOVA_Dataset_Margin, LibriSpeech_Dataset, COUGHVID_Dataset
 import torch.nn.functional as F
 import copy
 from scipy.special import softmax
@@ -205,6 +205,17 @@ class Solver(object):
                 neg_file_count += 1
         return resampled_files
 
+    def all_pairs(self, negative, positive):
+        """Make all possible pairs of positive and negative samples"""
+        random.shuffle(negative)
+        random.shuffle(positive)
+        pairs = []
+        for neg in negative:
+            for pos in positive:
+                pairs.append({'positive': pos, 'negative': neg})
+        random.shuffle(pairs)
+        return pairs
+
     def get_train_test(self):
         if self.args.TRAIN_DATASET == 'DiCOVA':
             partition = self.partition.dicova_partition
@@ -235,19 +246,32 @@ class Solver(object):
             val_files = training_files[train_val_split:]
             return train_files, val_files
 
-    def forward_pass(self, batch_data):
-        spects = batch_data['spects']
-        files = batch_data['files']
-        # labels = batch_data['labels']
-        # scalers = batch_data['scalers']
-        if self.args.FROM_PRETRAINING:
-            _, intermediate = self.pretrained(spects)
+    def forward_pass(self, batch_data, margin_config=False):
+        if not margin_config:
+            spects = batch_data['spects']
+            files = batch_data['files']
+            # labels = batch_data['labels']
+            # scalers = batch_data['scalers']
+            if self.args.FROM_PRETRAINING:
+                _, intermediate = self.pretrained(spects)
+            else:
+                intermediate = spects
+            predictions = self.G(intermediate)
+            return predictions
         else:
-            intermediate = spects
-        predictions = self.G(intermediate)
-        return predictions
+            neg_spects = batch_data['neg_spects']
+            pos_spects = batch_data['pos_spects']
+            if self.args.FROM_PRETRAINING:
+                _, intermediate_neg = self.pretrained(neg_spects)
+                _, intermediate_pos = self.pretrained(pos_spects)
+            else:
+                intermediate_neg = neg_spects
+                intermediate_pos = pos_spects
+            predictions_neg = self.G(intermediate_neg)
+            predictions_pos = self.G(intermediate_pos)
+            return predictions_pos, predictions_neg
 
-    def compute_loss(self, predictions, batch_data):
+    def compute_loss(self, predictions, batch_data, crossentropy_overwrite=False):
         if self.args.LOSS == 'APC':
             """Compute Autoregressive Predictive Coding Loss between output features and shifted input features"""
             model_output, intermediate_state = predictions
@@ -257,7 +281,7 @@ class Solver(object):
             input_features = input_features[:, self.config.pretraining2.future_frames:, :]
             model_output = model_output[:, 0: input_length - self.config.pretraining2.future_frames, :]
             loss = F.mse_loss(input=input_features, target=model_output)
-        elif self.args.LOSS == 'crossentropy':
+        elif self.args.LOSS == 'crossentropy' or crossentropy_overwrite:
             """Compute Cross Entropy Loss"""
             loss_function = nn.CrossEntropyLoss(reduction='none')
             labels = batch_data['labels']
@@ -265,6 +289,19 @@ class Solver(object):
             scalers = batch_data['scalers']
             """Multiply loss of positive labels by incorrect scaler"""
             loss = loss * scalers
+        elif self.args.LOSS == 'margin':
+            pos, neg = predictions
+            pos = torch.softmax(pos, dim=1)
+            neg = torch.softmax(neg, dim=1)
+            # pos_np = pos.detach().cpu().numpy()
+            pos_index = utils.get_class2index_and_index2class()[0]['p']
+            loss = 0
+            for i in range(self.model_hyperparameters.batch_size):
+                pos_value = pos[i][pos_index]
+                neg_value = neg[i][pos_index]
+                zero = torch.zeros(size=(1,)).to(pos_value.device)
+                loss_term = torch.max(zero, 0.8 + pos_value - neg_value)  # values range from 0 to 1 so margin 0.8
+                loss += loss_term
         return loss
 
     def val_loss(self, val, iterations):
@@ -279,8 +316,8 @@ class Solver(object):
             # try:
                 files = batch_data['files']
                 self.G = self.G.eval()
-                predictions = self.forward_pass(batch_data=batch_data)
-                loss = self.compute_loss(predictions=predictions, batch_data=batch_data)
+                predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+                loss = self.compute_loss(predictions=predictions, batch_data=batch_data, crossentropy_overwrite=True)
                 val_loss += loss.sum().item()
 
                 if not self.args.PRETRAINING:
@@ -353,12 +390,38 @@ class Solver(object):
 
     def get_train_val_generators(self, train, val):
         """Return generators for training with different datasets"""
-        if self.args.TRAIN_DATASET == 'DiCOVA':
+        if self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS != 'margin':
             # Adjust how often we see positive examples
             train_files_list = self.upsample_positive_class(negative=train['negative'], positive=train['positive'])
             val_files_list = val['positive'] + val['negative']
             """Make dataloader"""
             train_data = DiCOVA_Dataset(config=self.config, params={'files': train_files_list,
+                                                                    'mode': 'train',
+                                                                    'metadata_object': self.metadata,
+                                                                    'specaugment': self.model_hyperparameters.specaug_probability,
+                                                                    'time_warp': self.args.TIME_WARP,
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            self.index2class = train_data.index2class
+            self.class2index = train_data.class2index
+            val_data = DiCOVA_Dataset(config=self.config, params={'files': val_files_list,
+                                                                  'mode': 'val',
+                                                                  'metadata_object': self.metadata,
+                                                                  'specaugment': 0.0,
+                                                                  'time_warp': self.args.TIME_WARP,
+                                                                  'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                  'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
+        elif self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS == 'margin':
+            # Make all pairs of positive and negative samples
+            train_files_list = self.all_pairs(negative=train['negative'], positive=train['positive'])
+            val_files_list = val['positive'] + val['negative']  # NOT PAIRS!!!
+            """Make dataloader"""
+            train_data = DiCOVA_Dataset_Margin(config=self.config, params={'files': train_files_list,
                                                                     'mode': 'train',
                                                                     'metadata_object': self.metadata,
                                                                     'specaugment': self.model_hyperparameters.specaug_probability,
@@ -425,7 +488,10 @@ class Solver(object):
             for batch_number, batch_data in enumerate(train_gen):
                 try:
                     self.G = self.G.train()
-                    predictions = self.forward_pass(batch_data=batch_data)
+                    if self.args.LOSS == 'margin':
+                        predictions = self.forward_pass(batch_data=batch_data, margin_config=True)
+                    else:
+                        predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
                     loss = self.compute_loss(predictions=predictions, batch_data=batch_data)
                     # Backward and optimize.
                     self.reset_grad()
@@ -703,21 +769,21 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_pretrain2')
+    parser.add_argument('--TRIAL', type=str, default='dummy_from_pretrain_margin')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
-    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=True)
-    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
-    parser.add_argument('--LOSS', type=str, default='APC')  # crossentropy, APC
-    parser.add_argument('--MODALITY', type=str, default='cough')
-    parser.add_argument('--FEAT_DIR', type=str, default='feats/COUGHVID')
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
+    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
+    parser.add_argument('--LOSS', type=str, default='margin')  # crossentropy, APC, margin
+    parser.add_argument('--MODALITY', type=str, default='speech')
+    parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy
-    parser.add_argument('--TRAIN_DATASET', type=str, default='COUGHVID')  # DiCOVA, COUGHVID, LibriSpeech
-    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.75)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
+    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
     args = parser.parse_args()
     main(args)

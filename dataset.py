@@ -140,6 +140,112 @@ class DiCOVA_Dataset(object):
             spects = torch.unsqueeze(spects, dim=2)
         return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers}
 
+class DiCOVA_Dataset_Margin(object):
+    def __init__(self, config, params):
+        """Get the data and supporting files"""
+        self.config = config
+        'Initialization'
+        self.list_IDs = params['files']
+        self.mode = params["mode"]
+        self.metadata = params['metadata_object']
+        self.class2index, self.index2class = utils.get_class2index_and_index2class()
+        self.incorrect_scaler = self.config.post_pretraining_classifier.incorrect_scaler
+        self.specaug_probability = params['specaugment']
+        self.time_warp = params['time_warp']
+        self.input_type = params['input_type']
+        self.args = params['args']
+
+    def __len__(self):
+        'Denotes the total number of samples'
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        'Get the data item'
+        file = self.list_IDs[index]
+        positive = file['positive']
+        negative = file['negative']
+        paired_feats = []
+        """We want to load the audio files. Then we want to perform specaugment."""
+        for file in [positive, negative]:
+            feats = utils.load(file, type='pickle')
+            x = random.uniform(0, 1)
+            if x <= self.specaug_probability and self.mode != 'test':
+                time_width = round(feats.shape[0]*0.1)
+                if self.time_warp:
+                    max_time_warp = 80
+                else:
+                    max_time_warp = 1  # can't be zero
+                aug_feats = SPEC.spec_augment(feats, resize_mode='PIL', max_time_warp=max_time_warp,
+                                                                       max_freq_width=40, n_freq_mask=1,
+                                                                       max_time_width=time_width, n_time_mask=2,
+                                                                       inplace=False, replace_with_zero=True)
+                # plt.subplot(211)
+                # plt.imshow(feats.T)
+                # plt.subplot(212)
+                # plt.imshow(aug_feats.T)
+                # plt.show()
+                feats = aug_feats
+            else:
+                """"""
+
+            """NEW: speech clips are VERY long so for training speedup/augmentation we take small window as training example"""
+            if self.mode == 'train':
+                old_feats = feats
+                clip_length = feats.shape[0]
+                section_length = int(self.args.TRAIN_CLIP_FRACTION * clip_length)
+                new_start = int(random.uniform(0, clip_length-section_length))
+                feats = feats[new_start: new_start+section_length]
+            # plt.subplot(211)
+            # plt.imshow(feats.T)
+            # plt.subplot(212)
+            # plt.imshow(old_feats.T)
+            # plt.show()
+
+            if self.input_type == 'energy':
+                """Take the mean along the feature dimension"""
+                energy = np.mean(feats, axis=1)
+                # plt.subplot(211)
+                # plt.imshow(feats.T)
+                # plt.subplot(212)
+                # plt.plot(energy)
+                # plt.show()
+                feats = energy
+            paired_feats.append(feats)
+        pos_feats, neg_feats = paired_feats
+        stop = None
+
+
+        # plt.subplot(211)
+        # plt.plot(feats)
+        # plt.subplot(212)
+        # plt.plot(old_feats)
+        # plt.show()
+
+        pos_feats = self.to_GPU(torch.from_numpy(pos_feats))
+        pos_feats = pos_feats.to(torch.float32)
+        neg_feats = self.to_GPU(torch.from_numpy(neg_feats))
+        neg_feats = neg_feats.to(torch.float32)
+
+        return file, pos_feats, neg_feats
+
+    def to_GPU(self, tensor):
+        if self.config.use_gpu == True:
+            tensor = tensor.cuda()
+            return tensor
+        else:
+            return tensor
+
+    def collate(self, data):
+        files = [item[0] for item in data]
+        pos_spects = [item[1] for item in data]
+        neg_spects = [item[2] for item in data]
+        pos_spects = pad_sequence(pos_spects, batch_first=True, padding_value=0)
+        neg_spects = pad_sequence(neg_spects, batch_first=True, padding_value=0)
+        if self.input_type == 'energy':
+            pos_spects = torch.unsqueeze(pos_spects, dim=2)
+            neg_spects = torch.unsqueeze(neg_spects, dim=2)
+        return {'files': files, 'pos_spects': pos_spects, 'neg_spects': neg_spects}
+
 class LibriSpeech_Dataset(object):
     def __init__(self, config, params):
         """Get the data and supporting files"""
