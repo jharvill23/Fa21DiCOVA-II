@@ -7,6 +7,7 @@ data:
     num_mels: 160
     hop_length: 400
     top_db: 120
+    num_mfccs: 15
 
 directories:
     exps: exps/

@@ -21,6 +21,8 @@ parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randoml
 python3 train.py --TRIAL "speech_nopretrain_notimewarp_yesspecaug_spect_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE spectrogram --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
 # no pretraining, yes specaugment with no timewarp, energy input, crossentropy loss
 python3 train.py --TRIAL "speech_nopretrain_notimewarp_yesspecaug_energy_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE energy --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+# no pretraining, yes specaugment with no timewarp, mfcc input, crossentropy loss
+python3 train.py --TRIAL "speech_nopretrain_notimewarp_yesspecaug_mfcc_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE mfcc --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
 
 ### COUGH, fold 1, positive/negative sampling ratio 1.0 ###
 # no pretraining, yes specaugment with no timewarp, spectrogram input, crossentropy loss

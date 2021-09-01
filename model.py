@@ -28,6 +28,8 @@ class PreTrainer2(nn.Module):
             self.input_size = self.config.data.num_mels
         elif self.args.MODEL_INPUT_TYPE == 'energy':
             self.input_size = 1
+        if self.args.MODEL_INPUT_TYPE == 'mfcc':
+            self.input_size = self.config.data.num_mfccs
         self.num_mels = self.config.data.num_mels
         self.hidden_size = self.config.pretraining2.hidden_size
         self.linear_hidden_size = self.config.pretraining2.linear_hidden_size
@@ -104,6 +106,8 @@ class Classifier(nn.Module):
             self.input_size = self.config.data.num_mels
         elif self.args.MODEL_INPUT_TYPE == 'energy':
             self.input_size = 1
+        if self.args.MODEL_INPUT_TYPE == 'mfcc':
+            self.input_size = self.config.data.num_mfccs
         self.hidden_size = self.config.post_pretraining_classifier.hidden_size
         self.linear_hidden_size = self.config.post_pretraining_classifier.linear_hidden_size
         self.encoder_num_layers = self.config.post_pretraining_classifier.encoder_num_layers

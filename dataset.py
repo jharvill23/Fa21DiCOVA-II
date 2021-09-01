@@ -98,6 +98,16 @@ class DiCOVA_Dataset(object):
             # plt.show()
             feats = energy
 
+        elif self.input_type == 'mfcc':
+            """Get the mfccs from the normalized spectrogram"""
+            mfcc = librosa.feature.mfcc(S=feats.T, n_mfcc=self.config.data.num_mfccs)
+            # plt.subplot(211)
+            # plt.imshow(feats.T)
+            # plt.subplot(212)
+            # plt.imshow(mfcc)
+            # plt.show()
+            feats = mfcc.T
+
         # plt.subplot(211)
         # plt.plot(feats)
         # plt.subplot(212)
