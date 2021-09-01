@@ -300,7 +300,7 @@ class Solver(object):
                 pos_value = pos[i][pos_index]
                 neg_value = neg[i][pos_index]
                 zero = torch.zeros(size=(1,)).to(pos_value.device)
-                loss_term = torch.max(zero, 0.8 + pos_value - neg_value)  # values range from 0 to 1 so margin 0.8
+                loss_term = torch.max(zero, 0.2 + neg_value - pos_value)  # values range from 0 to 1 so margin 0.8
                 loss += loss_term
         return loss
 
@@ -769,7 +769,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_from_pretrain_margin')
+    parser.add_argument('--TRIAL', type=str, default='dummy_from_pretrain_margin0dot2')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
