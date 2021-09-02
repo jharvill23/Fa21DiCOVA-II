@@ -289,6 +289,15 @@ class LibriSpeech_Dataset(object):
         # plt.subplot(212)
         # plt.imshow(old_feats.T)
         # plt.show()
+        if self.input_type == 'mfcc':
+            """Get the mfccs from the normalized spectrogram"""
+            mfcc = librosa.feature.mfcc(S=feats.T, n_mfcc=self.config.data.num_mfccs)
+            # plt.subplot(211)
+            # plt.imshow(feats.T)
+            # plt.subplot(212)
+            # plt.imshow(mfcc)
+            # plt.show()
+            feats = mfcc.T
 
         feats = self.to_GPU(torch.from_numpy(feats))
         feats = feats.to(torch.float32)

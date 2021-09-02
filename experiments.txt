@@ -38,6 +38,8 @@ python3 train.py --TRIAL "breathing_nopretrain_notimewarp_yesspecaug_energy_cros
 
 ### SPEECH, pretraining ###
 CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_spect_APC" --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+### with mfcc ###
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_mfcc_APC" --MODEL_INPUT_TYPE mfcc --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
 
 ### COUGH, pretraining ###
 CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_pretrain_10ff_spect_APC" --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY cough --FEAT_DIR feats/COUGHVID --TRAIN_DATASET COUGHVID --TIME_WARP false --TRAIN_CLIP_FRACTION 0.8

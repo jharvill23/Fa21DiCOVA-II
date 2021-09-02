@@ -4,6 +4,8 @@ import torch.nn.functional as F
 #from torch.autograd import function as Function
 import torch
 import utils
+import torchvision.models as models
+
 
 config = utils.get_config()
 
@@ -45,7 +47,7 @@ class PreTrainer2(nn.Module):
                                       dropout=self.dropout, bidirectional=False)
         self.full1 = nn.Linear(in_features=self.hidden_size,
                                out_features=self.linear_hidden_size)
-        self.full2 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.num_mels)
+        self.full2 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.input_size)
 
     def forward(self, x):
         x, _ = self.encoder_lstm_1(x)
@@ -141,4 +143,18 @@ class Classifier(nn.Module):
         x = self.dropout2(x)
         x = F.tanh(x)
         x = self.full3(x)
+        return x
+
+class ClassifierCNN(nn.Module):  # ResNet50 +  Average Pool
+    def __init__(self, config, args):
+        super(ClassifierCNN, self).__init__()
+        self.config = config
+        self.args = args
+
+        self.model = models.resnet50(pretrained=True)
+        self.model.conv1 = torch.nn.Conv2d(1, 64, (7, 7), (2, 2), (3, 3), bias=False)
+        self.model.fc = nn.Linear(self.model.fc.in_features, 2)
+
+    def forward(self, x):
+        x = self.model(x)
         return x
