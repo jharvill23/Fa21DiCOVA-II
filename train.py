@@ -107,7 +107,10 @@ class Solver(object):
         if self.args.FROM_PRETRAINING:
             """Build the model"""
             pretrain_config = copy.deepcopy(self.config)
-            pretrain_config.model.name = 'PreTrainer2'
+            if self.args.MODEL_TYPE == 'LSTM':
+                pretrain_config.model.name = 'PreTrainer2'
+            elif self.args.MODEL_TYPE == 'CNN':
+                pretrain_config.model.name = 'PreTrainerCNN'
             """Load the weights"""
             self.pretrained = model.Model(pretrain_config, self.args)
             pretrain_checkpoint = self._load(self.args.RESTORE_PRETRAINER_PATH)
@@ -118,10 +121,16 @@ class Solver(object):
             self.pretrained.to(self.device)
             """Make trainer have input to take pretrained feature output dimension"""
             train_config = copy.deepcopy(self.config)
-            train_config.model.name = 'PostPreTrainClassifier'
+            if self.args.MODEL_TYPE == 'LSTM':
+                train_config.model.name = 'PostPreTrainClassifier'
+            elif self.args.MODEL_TYPE == 'CNN':
+                train_config.model.name = 'PostPreTrainClassifierCNN'  # TODO: this not implemented yet!!!
         elif self.args.PRETRAINING:
             train_config = copy.deepcopy(self.config)
-            train_config.model.name = 'PreTrainer2'
+            if self.args.MODEL_TYPE == 'LSTM':
+                train_config.model.name = 'PreTrainer2'
+            elif self.args.MODEL_TYPE == 'CNN':
+                train_config.model.name = 'PreTrainerCNN'
         else:
             train_config = copy.deepcopy(self.config)
             train_config.model.name = 'Classifier'
@@ -769,7 +778,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_pretrain_mfcc_speech')
+    parser.add_argument('--TRIAL', type=str, default='dummy_pretrain_mfcc_speech_CNN')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
@@ -783,6 +792,7 @@ if __name__ == "__main__":
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='mfcc')  # spectrogram, energy, mfcc
+    parser.add_argument('--MODEL_TYPE', type=str, default='CNN')  # CNN, LSTM
     parser.add_argument('--TRAIN_DATASET', type=str, default='LibriSpeech')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
     args = parser.parse_args()

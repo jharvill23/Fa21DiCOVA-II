@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch
 import utils
 import torchvision.models as models
+from torch.nn.utils.rnn import pad_sequence
 
 
 config = utils.get_config()
@@ -158,3 +159,116 @@ class ClassifierCNN(nn.Module):  # ResNet50 +  Average Pool
     def forward(self, x):
         x = self.model(x)
         return x
+
+
+
+class PreTrainerCNN(nn.Module):
+    def __init__(self, config, args):
+        super(PreTrainerCNN, self).__init__()
+        # https://discuss.pytorch.org/t/accessing-intermediate-layers-of-a-pretrained-network-forward/12113
+        self.config = config
+        self.args = args
+        if self.args.MODEL_INPUT_TYPE == 'spectrogram':
+            self.input_size = self.config.data.num_mels
+        elif self.args.MODEL_INPUT_TYPE == 'energy':
+            self.input_size = 1
+        if self.args.MODEL_INPUT_TYPE == 'mfcc':
+            self.input_size = self.config.data.num_mfccs
+        ### https://forums.fast.ai/t/pytorch-best-way-to-get-at-intermediate-layers-in-vgg-and-resnet/5707
+        # original_model = models.resnet18(pretrained=True)
+        # self.high_feats = nn.Sequential(*list(original_model.children())[:-3])
+        # self.conv1 = ConvNorm(in_channels=self.input_size, out_channels=self.input_size)
+
+        self.upscale = self.config.pretraining2.upscale
+
+        self.convolutions = nn.ModuleList()
+        self.convolutions.append(
+            nn.Sequential(
+                ConvNorm(self.input_size,
+                         self.input_size * self.upscale,
+                         kernel_size=7, stride=1,
+                         padding=int((7 - 1) / 2),
+                         dilation=1, w_init_gain='tanh'),
+                nn.BatchNorm1d(self.input_size * self.upscale))
+        )
+        """Lower layers"""
+        for i in range(0, 3):
+            self.convolutions.append(
+                nn.Sequential(
+                    ConvNorm(self.input_size * self.upscale,
+                             self.input_size * self.upscale,
+                             kernel_size=7, stride=1,
+                             padding=int((7 - 1) / 2),
+                             dilation=1, w_init_gain='tanh'),
+                    nn.BatchNorm1d(self.input_size * self.upscale))
+            )
+        """Higher layers"""
+        for i in range(0, 3):
+            self.convolutions.append(
+                nn.Sequential(
+                    ConvNorm(self.input_size * self.upscale,
+                             self.input_size * self.upscale,
+                             kernel_size=7, stride=1,
+                             padding=int((7 - 1) / 2),
+                             dilation=1, w_init_gain='tanh'),
+                    nn.BatchNorm1d(self.input_size * self.upscale))
+            )
+        """Last layer"""
+        self.convolutions.append(
+            nn.Sequential(
+                ConvNorm(self.input_size * self.upscale,
+                         self.input_size,
+                         kernel_size=7, stride=1,
+                         padding=int((7 - 1) / 2),
+                         dilation=1, w_init_gain='tanh'),
+                nn.BatchNorm1d(self.input_size))
+        )
+        self.n_convs = len(self.convolutions)
+
+
+
+
+    def forward(self, x):
+        """Expand to three 'channels' for the resnet model"""
+        # examples = []
+        # for example in x:
+        #     example = torch.unsqueeze(example, dim=0)
+        #     example = example.repeat(3, 1, 1)
+        #     examples.append(example)
+        # examples = pad_sequence(examples, batch_first=True, padding_value=0)
+        # x = examples
+        x = x.permute(0, 2, 1)
+        if self.args.TRAIN:
+            i = 0
+            for conv in self.convolutions:
+                if i < self.n_convs - 1:
+                    x = F.dropout(torch.tanh(conv(x)), 0.5, training=self.training)
+                else:
+                    x = F.dropout(conv(x), 0.5, training=self.training)
+                if i == 3:
+                    intermediate = x
+                i += 1
+            # x = self.high_feats(x)
+        x = x.permute(0, 2, 1)
+        intermediate = intermediate.permute(0, 2, 1)
+        return x, intermediate
+
+class ConvNorm(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
+                 padding=None, dilation=1, bias=True, w_init_gain='linear'):
+        super(ConvNorm, self).__init__()
+        if padding is None:
+            assert(kernel_size % 2 == 1)
+            padding = int(dilation * (kernel_size - 1) / 2)
+
+        self.conv = torch.nn.Conv1d(in_channels, out_channels,
+                                    kernel_size=kernel_size, stride=stride,
+                                    padding=padding, dilation=dilation,
+                                    bias=bias)
+
+        torch.nn.init.xavier_uniform_(
+            self.conv.weight,
+            gain=torch.nn.init.calculate_gain(w_init_gain))
+
+    def forward(self, signal):
+        return self.conv(signal)

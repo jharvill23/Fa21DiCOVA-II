@@ -37,12 +37,16 @@ python3 train.py --TRIAL "breathing_nopretrain_notimewarp_yesspecaug_spect_cross
 python3 train.py --TRIAL "breathing_nopretrain_notimewarp_yesspecaug_energy_crossent_fold1" --FOLD 1 --MODEL_INPUT_TYPE energy --PRETRAINING false --FROM_PRETRAINING false --LOSS crossentropy --MODALITY breathing --FEAT_DIR feats/DiCOVA --TRAIN_DATASET DiCOVA --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
 
 ### SPEECH, pretraining ###
-CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_spect_APC" --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_spect_APC" --MODEL_TYPE LSTM --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
 ### with mfcc ###
-CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_mfcc_APC" --MODEL_INPUT_TYPE mfcc --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_mfcc_APC" --MODEL_TYPE LSTM --MODEL_INPUT_TYPE mfcc --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
+### with mfcc, CNN, 20ff ###
+CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL "speech_pretrain_20ff_mfcc_APC_CNN" --MODEL_TYPE CNN --MODEL_INPUT_TYPE mfcc --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --TRAIN_DATASET LibriSpeech --TIME_WARP false --TRAIN_CLIP_FRACTION 0.3
 
 ### COUGH, pretraining ###
 CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_pretrain_10ff_spect_APC" --MODEL_INPUT_TYPE spectrogram --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY cough --FEAT_DIR feats/COUGHVID --TRAIN_DATASET COUGHVID --TIME_WARP false --TRAIN_CLIP_FRACTION 0.8
+### with mfcc, CNN, 20ff ###
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_pretrain_20ff_mfcc_APC_CNN" --MODEL_TYPE CNN --MODEL_INPUT_TYPE mfcc --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY cough --FEAT_DIR feats/COUGHVID --TRAIN_DATASET COUGHVID --TIME_WARP false --TRAIN_CLIP_FRACTION 0.8
 
 ### COUGH, finetuning after pretraining, fold 1 ###
 CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "cough_yespretrain_notimewarp_yesspecaug_spect_crossent_fold1" --FOLD 1 --RESTORE_PRETRAINER_PATH "exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt" --PRETRAINING false --FROM_PRETRAINING true --LOSS crossentropy --MODALITY cough --FEAT_DIR feats/DiCOVA --TIME_WARP false --MODEL_INPUT_TYPE spectrogram --TRAIN_DATASET DiCOVA --TRAIN_CLIP_FRACTION 0.85
