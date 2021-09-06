@@ -59,7 +59,7 @@ class DiCOVA_Dataset(object):
         if x <= self.specaug_probability and self.mode != 'test':
             time_width = round(feats.shape[0]*0.1)
             if self.time_warp:
-                max_time_warp = 80
+                max_time_warp = 250
             else:
                 max_time_warp = 1  # can't be zero
             aug_feats = SPEC.spec_augment(feats, resize_mode='PIL', max_time_warp=max_time_warp,

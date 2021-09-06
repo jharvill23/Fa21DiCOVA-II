@@ -47,7 +47,8 @@ post_pretraining_classifier:
     model_save_step: 500
     num_epochs: 1000
     batch_size: 3
-    specaug_probability: 1.0
+    specaug_probability: 0.0
+    pooled_size: 32
 
 classifier:
     lr: 0.0001

@@ -58,9 +58,12 @@ CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL "speech_yespretrain_notimewarp_y
 CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL "speech_yespretrain_notimewarp_yesspecaug_spect_margin0dot8_fold1" --FOLD 1 --RESTORE_PRETRAINER_PATH "exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt" --PRETRAINING false --FROM_PRETRAINING true --LOSS margin --MODALITY speech --FEAT_DIR feats/DiCOVA --TIME_WARP false --MODEL_INPUT_TYPE spectrogram --TRAIN_DATASET DiCOVA --TRAIN_CLIP_FRACTION 0.3
 CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL "speech_yespretrain_notimewarp_yesspecaug_spect_margin0dot2_fold1" --FOLD 1 --RESTORE_PRETRAINER_PATH "exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt" --PRETRAINING false --FROM_PRETRAINING true --LOSS margin --MODALITY speech --FEAT_DIR feats/DiCOVA --TIME_WARP false --MODEL_INPUT_TYPE spectrogram --TRAIN_DATASET DiCOVA --TRAIN_CLIP_FRACTION 0.3
 
+### SPEECH, MFCC, finetuning after CNN pretraining with CNN, fold 1, crossentropy loss, time-warping ###
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_CNN_yespretrainCNN_yestimewarp_yesspecaug_mfcc_crossentropy_fold1" --TRAIN true --FOLD 1 --RESTORE_PRETRAINER_PATH exps/speech_pretrain_20ff_mfcc_APC_CNN/models/90000-G.ckpt --PRETRAINING false --FROM_PRETRAINING true --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --POS_NEG_SAMPLING_RATIO 1.0 --TIME_WARP true --MODEL_INPUT_TYPE mfcc --MODEL_TYPE CNN --TRAIN_DATASET DiCOVA --TRAIN_CLIP_FRACTION 0.3
 
+### SPEECH, MFCC, finetuning after CNN pretraining with CNN, fold 1, crossentropy loss, no time-warping ###
+CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL "speech_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy_fold1" --TRAIN true --FOLD 1 --RESTORE_PRETRAINER_PATH exps/speech_pretrain_20ff_mfcc_APC_CNN/models/90000-G.ckpt --PRETRAINING false --FROM_PRETRAINING true --LOSS crossentropy --MODALITY speech --FEAT_DIR feats/DiCOVA --POS_NEG_SAMPLING_RATIO 1.0 --TIME_WARP false --MODEL_INPUT_TYPE mfcc --MODEL_TYPE CNN --TRAIN_DATASET DiCOVA --TRAIN_CLIP_FRACTION 0.3
 
-
-
+### SPEECH, MFCC, finetuning after CNN pretraining with CNN, fold 1, crossentropy loss, no specaugment (changed config.yml) ###
 
 

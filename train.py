@@ -124,7 +124,7 @@ class Solver(object):
             if self.args.MODEL_TYPE == 'LSTM':
                 train_config.model.name = 'PostPreTrainClassifier'
             elif self.args.MODEL_TYPE == 'CNN':
-                train_config.model.name = 'PostPreTrainClassifierCNN'  # TODO: this not implemented yet!!!
+                train_config.model.name = 'PostPreTrainClassifierCNN'
         elif self.args.PRETRAINING:
             train_config = copy.deepcopy(self.config)
             if self.args.MODEL_TYPE == 'LSTM':
@@ -778,22 +778,22 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_pretrain_mfcc_speech_CNN')
+    parser.add_argument('--TRIAL', type=str, default='dummy_finetune_mfcc_speech_CNN_timewarp')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
-    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=True)
-    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
-    parser.add_argument('--LOSS', type=str, default='APC')  # crossentropy, APC, margin
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_20ff_mfcc_APC_CNN/models/90000-G.ckpt')
+    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
+    parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
     parser.add_argument('--MODALITY', type=str, default='speech')
-    parser.add_argument('--FEAT_DIR', type=str, default='feats/LibriSpeech')
+    parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
-    parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
+    parser.add_argument('--TIME_WARP', type=utils.str2bool, default=True)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='mfcc')  # spectrogram, energy, mfcc
     parser.add_argument('--MODEL_TYPE', type=str, default='CNN')  # CNN, LSTM
-    parser.add_argument('--TRAIN_DATASET', type=str, default='LibriSpeech')  # DiCOVA, COUGHVID, LibriSpeech
+    parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
     args = parser.parse_args()
     main(args)

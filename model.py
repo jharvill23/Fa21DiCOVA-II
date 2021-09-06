@@ -253,6 +253,88 @@ class PreTrainerCNN(nn.Module):
         intermediate = intermediate.permute(0, 2, 1)
         return x, intermediate
 
+
+class PostPreTrainClassifierCNN(nn.Module):
+    def __init__(self, config, args):
+        super(PostPreTrainClassifierCNN, self).__init__()
+        # https://discuss.pytorch.org/t/accessing-intermediate-layers-of-a-pretrained-network-forward/12113
+        self.config = config
+        self.args = args
+        if self.args.MODEL_INPUT_TYPE == 'spectrogram':
+            self.input_size = self.config.data.num_mels
+        elif self.args.MODEL_INPUT_TYPE == 'energy':
+            self.input_size = 1
+        if self.args.MODEL_INPUT_TYPE == 'mfcc':
+            self.input_size = self.config.data.num_mfccs
+        self.linear_hidden_size = self.config.post_pretraining_classifier.linear_hidden_size
+        self.output_dim = 2  # number of classes
+        self.dropout = self.config.post_pretraining_classifier.dropout
+        ### https://forums.fast.ai/t/pytorch-best-way-to-get-at-intermediate-layers-in-vgg-and-resnet/5707
+        # original_model = models.resnet18(pretrained=True)
+        # self.high_feats = nn.Sequential(*list(original_model.children())[:-3])
+        # self.conv1 = ConvNorm(in_channels=self.input_size, out_channels=self.input_size)
+
+        self.upscale = self.config.pretraining2.upscale
+
+        self.convolutions = nn.ModuleList()
+
+        """Lower layers"""
+        for i in range(0, 8):
+            self.convolutions.append(
+                nn.Sequential(
+                    ConvNorm(self.input_size * self.upscale,
+                             self.input_size * self.upscale,
+                             kernel_size=7, stride=1,
+                             padding=int((7 - 1) / 2),
+                             dilation=1, w_init_gain='tanh'),
+                    nn.BatchNorm1d(self.input_size * self.upscale))
+            )
+        """Last layer"""
+        self.convolutions.append(
+            nn.Sequential(
+                ConvNorm(self.input_size * self.upscale,
+                         self.input_size,
+                         kernel_size=7, stride=1,
+                         padding=int((7 - 1) / 2),
+                         dilation=1, w_init_gain='tanh'),
+                nn.BatchNorm1d(self.input_size))
+        )
+        self.n_convs = len(self.convolutions)
+        """Add an adaptive pooling layer"""
+        self.pool = nn.AdaptiveAvgPool2d(self.config.post_pretraining_classifier.pooled_size)
+        self.full1 = nn.Linear(in_features=self.config.post_pretraining_classifier.pooled_size**2,
+                               out_features=self.linear_hidden_size)
+        self.dropout1 = nn.Dropout(p=self.dropout)
+        self.full2 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.linear_hidden_size)
+        self.dropout2 = nn.Dropout(p=self.dropout)
+        self.full3 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.output_dim)
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        if self.args.TRAIN:
+            i = 0
+            for conv in self.convolutions:
+                if i < self.n_convs - 1:
+                    x = F.dropout(torch.tanh(conv(x)), 0.5, training=self.training)
+                else:
+                    x = F.dropout(conv(x), 0.5, training=self.training)
+                i += 1
+            # x = self.high_feats(x)
+        x = x.permute(0, 2, 1)
+        x = self.pool(x)
+        """Flatten along last two dimensions"""
+        x = torch.flatten(x, start_dim=1, end_dim=2)
+        x = self.full1(x)
+        x = self.dropout1(x)
+        x = F.tanh(x)
+        x = self.full2(x)
+        x = self.dropout2(x)
+        x = F.tanh(x)
+        x = self.full3(x)
+        return x
+
+
+
 class ConvNorm(torch.nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,
                  padding=None, dilation=1, bias=True, w_init_gain='linear'):
