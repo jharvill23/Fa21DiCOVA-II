@@ -1,6 +1,9 @@
 """This script REMOVES models it chooses not to keep based on evaluation metrics.
    BE VERY CAREFUL SINCE THE MODELS ARE REMOVED PERMANENTLY AND CANNOT BE RECOVERED."""
 
+# code to read tensorboard logfile from:
+# https://stackoverflow.com/questions/36700404/tensorflow-opening-log-data-written-by-summarywriter/45899735#45899735
+
 import os
 import random
 
