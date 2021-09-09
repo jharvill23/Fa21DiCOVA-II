@@ -28,6 +28,7 @@ class DiCOVA_Dataset(object):
         self.mode = params["mode"]
         self.metadata = params['metadata_object']
         self.class2index, self.index2class = utils.get_class2index_and_index2class()
+        self.mf_class2index, self.mf_index2class = utils.get_mf_class2index_and_index2class()
         self.incorrect_scaler = self.config.post_pretraining_classifier.incorrect_scaler
         self.specaug_probability = params['specaugment']
         self.time_warp = params['time_warp']
@@ -45,10 +46,14 @@ class DiCOVA_Dataset(object):
             metadata = self.metadata.get_feature_metadata(file, dataset='DiCOVA')
             label = self.class2index[metadata['Covid_status']]
             label = self.to_GPU(torch.from_numpy(np.asarray(label)))
+            mf = self.mf_class2index[metadata['Gender']]
+            mf = self.to_GPU(torch.from_numpy(np.asarray(mf)))
         elif self.mode == 'val':
             metadata = self.metadata.get_feature_metadata(file, dataset='DiCOVA')
             label = self.class2index[metadata['Covid_status']]
             label = self.to_GPU(torch.from_numpy(np.asarray(label)))
+            mf = self.mf_class2index[metadata['Gender']]
+            mf = self.to_GPU(torch.from_numpy(np.asarray(mf)))
         else:
             metadata = None
             label = None
@@ -128,7 +133,7 @@ class DiCOVA_Dataset(object):
             scaler.requires_grad = True
         else:
             scaler = None
-        return file, feats, label, scaler
+        return file, feats, label, scaler, mf
 
     def to_GPU(self, tensor):
         if self.config.use_gpu == True:
@@ -142,13 +147,15 @@ class DiCOVA_Dataset(object):
         spects = [item[1] for item in data]
         labels = [item[2] for item in data]
         scalers = [item[3] for item in data]
+        mf = [item[4] for item in data]
         spects = pad_sequence(spects, batch_first=True, padding_value=0)
         if self.mode != 'test':
             labels = torch.stack([x for x in labels])
             scalers = torch.stack([x for x in scalers])
+            mf = torch.stack([x for x in mf])
         if self.input_type == 'energy':
             spects = torch.unsqueeze(spects, dim=2)
-        return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers}
+        return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers, 'mf': mf}
 
 class DiCOVA_Dataset_Margin(object):
     def __init__(self, config, params):

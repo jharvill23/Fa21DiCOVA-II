@@ -103,6 +103,11 @@ def get_class2index_and_index2class():
     index2class = {0: 'p', 1: 'n'}
     return class2index, index2class
 
+def get_mf_class2index_and_index2class():
+    class2index = {'m': 0, 'f': 1}
+    index2class = {0: 'm', 1: 'f'}
+    return class2index, index2class
+
 def str2bool(v):
     if isinstance(v, bool):
        return v

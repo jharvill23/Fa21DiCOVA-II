@@ -265,6 +265,9 @@ class Solver(object):
                 _, intermediate = self.pretrained(spects)
             else:
                 intermediate = spects
+            if self.args.INCLUDE_MF:
+                mf = batch_data['mf']
+                intermediate = {'intermediate': intermediate, 'mf': mf}
             predictions = self.G(intermediate)
             return predictions
         else:
@@ -276,6 +279,7 @@ class Solver(object):
             else:
                 intermediate_neg = neg_spects
                 intermediate_pos = pos_spects
+
             predictions_neg = self.G(intermediate_neg)
             predictions_pos = self.G(intermediate_pos)
             return predictions_pos, predictions_neg
@@ -495,7 +499,7 @@ class Solver(object):
         for epoch in range(self.model_hyperparameters.num_epochs):
             train_gen, val_gen = self.get_train_val_generators(train, val)
             for batch_number, batch_data in enumerate(train_gen):
-                try:
+                # try:
                     self.G = self.G.train()
                     if self.args.LOSS == 'margin':
                         predictions = self.forward_pass(batch_data=batch_data, margin_config=True)
@@ -530,8 +534,8 @@ class Solver(object):
                         print('Saved model checkpoints into {}...'.format(self.model_save_dir))
 
                     iterations += 1
-                except:
-                    print('GPU out of memory or other training error...')
+                # except:
+                #     print('GPU out of memory or other training error...')
 
     def val_scores(self):
         self.evaluation_dir = os.path.join(self.exp_dir, 'evaluations')
@@ -778,7 +782,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_finetune_mfcc_speech_CNN_timewarp')
+    parser.add_argument('--TRIAL', type=str, default='dummy_mf_finetune_mfcc_speech_CNN_timewarp')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
@@ -795,5 +799,6 @@ if __name__ == "__main__":
     parser.add_argument('--MODEL_TYPE', type=str, default='CNN')  # CNN, LSTM
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=True)  # include male/female metadata
     args = parser.parse_args()
     main(args)

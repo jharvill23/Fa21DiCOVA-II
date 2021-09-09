@@ -72,6 +72,11 @@ class PostPreTrainClassifier(nn.Module):
         self.dropout = self.config.post_pretraining_classifier.dropout
         self.output_dim = 2  # number of classes
         self.bidirectional = config.post_pretraining_classifier.bidirectional
+        if self.args.INCLUDE_MF:
+            """Add an embedding layer for male/female input embeddings"""
+            self.embed = nn.Embedding(num_embeddings=2)  # male/female classes only
+            """Add the dimension of the embedding to the input size!!!"""
+            self.input_size += self.embed.embedding_dim
 
         self.encoder_lstm_1 = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size,
                                       num_layers=self.encoder_num_layers, batch_first=self.batch_first,
@@ -266,6 +271,10 @@ class PostPreTrainClassifierCNN(nn.Module):
             self.input_size = 1
         if self.args.MODEL_INPUT_TYPE == 'mfcc':
             self.input_size = self.config.data.num_mfccs
+        if self.args.INCLUDE_MF:
+            """Add an embedding layer for male/female input embeddings"""
+            self.embed = nn.Embedding(num_embeddings=2, embedding_dim=10)  # male/female classes only
+
         self.linear_hidden_size = self.config.post_pretraining_classifier.linear_hidden_size
         self.output_dim = 2  # number of classes
         self.dropout = self.config.post_pretraining_classifier.dropout
@@ -279,20 +288,24 @@ class PostPreTrainClassifierCNN(nn.Module):
         self.convolutions = nn.ModuleList()
 
         """Lower layers"""
+        if self.args.INCLUDE_MF:
+            conv_input_size = self.input_size * self.upscale + self.embed.embedding_dim
+        else:
+            conv_input_size = self.input_size * self.upscale
         for i in range(0, 8):
             self.convolutions.append(
                 nn.Sequential(
-                    ConvNorm(self.input_size * self.upscale,
-                             self.input_size * self.upscale,
+                    ConvNorm(conv_input_size,
+                             conv_input_size,
                              kernel_size=7, stride=1,
                              padding=int((7 - 1) / 2),
                              dilation=1, w_init_gain='tanh'),
-                    nn.BatchNorm1d(self.input_size * self.upscale))
+                    nn.BatchNorm1d(conv_input_size))
             )
         """Last layer"""
         self.convolutions.append(
             nn.Sequential(
-                ConvNorm(self.input_size * self.upscale,
+                ConvNorm(conv_input_size,
                          self.input_size,
                          kernel_size=7, stride=1,
                          padding=int((7 - 1) / 2),
@@ -310,6 +323,15 @@ class PostPreTrainClassifierCNN(nn.Module):
         self.full3 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.output_dim)
 
     def forward(self, x):
+        if self.args.INCLUDE_MF:
+            data = x['intermediate']
+            mf_indices = x['mf']
+            # TODO: """Need to get mf embedding and concatenate along intermediate representation's time axis"""
+            mf_embeds = self.embed(mf_indices)
+            concattable_embeds = torch.unsqueeze(mf_embeds, dim=1)
+            concattable_embeds = concattable_embeds.repeat(1, data.shape[1], 1)
+            x = torch.cat((data, concattable_embeds), dim=2)
+
         x = x.permute(0, 2, 1)
         if self.args.TRAIN:
             i = 0
