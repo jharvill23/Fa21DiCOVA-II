@@ -51,7 +51,7 @@ class Solver(object):
         self.torch_type = torch.float32
 
         # Miscellaneous.
-        self.use_tensorboard = True
+        self.use_tensorboard = args.USE_TENSORBOARD
         self.use_cuda = torch.cuda.is_available()
         self.device = torch.device('cuda:{}'.format(0) if self.use_cuda else 'cpu')
 
@@ -647,7 +647,7 @@ class Solver(object):
         self.evaluation_dir = os.path.join(self.exp_dir, 'evaluations')
         if not os.path.exists(self.evaluation_dir):
             os.mkdir(self.evaluation_dir)
-        self.fold_dir = os.path.join(self.evaluation_dir, self.test_fold)
+        self.fold_dir = os.path.join(self.evaluation_dir, self.args.FOLD)
         if not os.path.isdir(self.fold_dir):
             os.mkdir(self.fold_dir)
         self.eval_type_dir = os.path.join(self.fold_dir, 'val')
@@ -658,35 +658,30 @@ class Solver(object):
             os.mkdir(self.specific_model_dir)
         """Get train/test"""
         train, val = self.get_train_test()
-        train_files_list = train['positive'] + train['negative']
+        # train_files_list = train['positive'] + train['negative']
         val_files_list = val['positive'] + val['negative']
 
         ground_truth = []
         pred_scores = []
 
         """Make dataloader"""
-        train_data = Dataset(config=config, params={'files': train_files_list,
-                                                    'mode': 'train',
-                                                    'data_object': self.training_data,
-                                                    'specaugment': self.config.train.specaugment})
-        train_gen = data.DataLoader(train_data, batch_size=config.train.batch_size,
-                                    shuffle=True, collate_fn=train_data.collate, drop_last=True)
-        self.index2class = train_data.index2class
-        self.class2index = train_data.class2index
-        val_data = Dataset(config=config, params={'files': val_files_list,
-                                                  'mode': 'train',
-                                                  'data_object': self.training_data,
-                                                  'specaugment': False})
-        val_gen = data.DataLoader(val_data, batch_size=1, shuffle=True, collate_fn=val_data.collate, drop_last=False)
+        val_data = DiCOVA_Dataset(config=self.config, params={'files': val_files_list,
+                                                              'mode': 'val',
+                                                              'metadata_object': self.metadata,
+                                                              'specaugment': 0.0,
+                                                              'time_warp': self.args.TIME_WARP,
+                                                              'input_type': self.args.MODEL_INPUT_TYPE,
+                                                              'args': self.args})
+        val_gen = data.DataLoader(val_data, batch_size=1,
+                                  shuffle=True, collate_fn=val_data.collate, drop_last=True)
+        self.index2class = val_data.index2class
+        self.class2index = val_data.class2index
         for batch_number, features in tqdm(enumerate(val_gen)):
-            feature = features['features']
-            files = features['files']
-            self.G = self.G.eval()
-            _, intermediate = self.pretrained(feature)
-            predictions = self.G(intermediate)
+            predictions = self.forward_pass(batch_data=features, margin_config=False)
             predictions = predictions.detach().cpu().numpy()
             scores = softmax(predictions, axis=1)
-            info = [self.training_data.get_file_metadata(x) for x in files]
+            files = features['files']
+            info = [self.metadata.get_feature_metadata(x, dataset='DiCOVA') for x in files]
             file = files[0]  # batch size 1
 
             filekey = file.split('/')[-1][:-4]
@@ -800,5 +795,6 @@ if __name__ == "__main__":
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=True)  # include male/female metadata
+    parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
     args = parser.parse_args()
     main(args)

@@ -243,16 +243,16 @@ class PreTrainerCNN(nn.Module):
         # examples = pad_sequence(examples, batch_first=True, padding_value=0)
         # x = examples
         x = x.permute(0, 2, 1)
-        if self.args.TRAIN:
-            i = 0
-            for conv in self.convolutions:
-                if i < self.n_convs - 1:
-                    x = F.dropout(torch.tanh(conv(x)), 0.5, training=self.training)
-                else:
-                    x = F.dropout(conv(x), 0.5, training=self.training)
-                if i == 3:
-                    intermediate = x
-                i += 1
+        # if self.args.TRAIN:
+        i = 0
+        for conv in self.convolutions:
+            if i < self.n_convs - 1:
+                x = F.dropout(torch.tanh(conv(x)), 0.5, training=self.training)
+            else:
+                x = F.dropout(conv(x), 0.5, training=self.training)
+            if i == 3:
+                intermediate = x
+            i += 1
             # x = self.high_feats(x)
         x = x.permute(0, 2, 1)
         intermediate = intermediate.permute(0, 2, 1)
