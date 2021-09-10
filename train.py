@@ -114,6 +114,7 @@ class Solver(object):
             """Load the weights"""
             self.pretrained = model.Model(pretrain_config, self.args)
             pretrain_checkpoint = self._load(self.args.RESTORE_PRETRAINER_PATH)
+            print('Restoring pretrainer from ' + self.args.RESTORE_PRETRAINER_PATH)
             self.pretrained.load_state_dict(pretrain_checkpoint['model'])
             """Freeze pretrainer"""
             for param in self.pretrained.parameters():
@@ -166,7 +167,7 @@ class Solver(object):
 
     def restore_model(self, G_path):
         """Restore the model"""
-        print('Loading the trained models... ')
+        print('Loading the trained model from ' + G_path)
         g_checkpoint = self._load(G_path)
         self.G.load_state_dict(g_checkpoint['model'])
         self.g_optimizer.load_state_dict(g_checkpoint['optimizer'])
@@ -644,6 +645,7 @@ class Solver(object):
                 f.write("%s\n" % item)
 
     def val_scores_ensemble(self, model_num):
+        """Something is very, very wrong here and I don't know what it is..."""
         self.evaluation_dir = os.path.join(self.exp_dir, 'evaluations')
         if not os.path.exists(self.evaluation_dir):
             os.mkdir(self.evaluation_dir)
@@ -669,7 +671,7 @@ class Solver(object):
                                                               'mode': 'val',
                                                               'metadata_object': self.metadata,
                                                               'specaugment': 0.0,
-                                                              'time_warp': self.args.TIME_WARP,
+                                                              'time_warp': False,
                                                               'input_type': self.args.MODEL_INPUT_TYPE,
                                                               'args': self.args})
         val_gen = data.DataLoader(val_data, batch_size=1,
@@ -677,20 +679,28 @@ class Solver(object):
         self.index2class = val_data.index2class
         self.class2index = val_data.class2index
         correct = 0
+        val_loss = 0
         for batch_number, features in tqdm(enumerate(val_gen)):
-            self.G = self.G.train()
-            predictions = self.forward_pass(batch_data=features, margin_config=False)
-            predictions = predictions.detach().cpu().numpy()
-            scores = softmax(predictions, axis=1)
             files = features['files']
-            info = [self.metadata.get_feature_metadata(x, dataset='DiCOVA') for x in files]
-            file = files[0]  # batch size 1
+            self.G = self.G.eval()
+            predictions = self.forward_pass(batch_data=features, margin_config=False)
+            loss = self.compute_loss(predictions=predictions, batch_data=features, crossentropy_overwrite=True)
+            val_loss += loss.sum().item()
 
-            filekey = file.split('/')[-1][:-4]
-            gt = info[0]['Covid_status']
-            score = scores[0, self.class2index['p']]
-            ground_truth.append(filekey + ' ' + gt)
-            pred_scores.append(filekey + ' ' + str(score))
+            predictions = predictions.detach().cpu().numpy()
+            max_preds = np.argmax(predictions, axis=1)
+            scores = softmax(predictions, axis=1)
+            pred_value = [self.index2class[x] for x in max_preds]
+
+            info = [self.metadata.get_feature_metadata(x) for x in files]
+
+            for i, file in enumerate(files):
+                filekey = file.split('/')[-1][:-4]
+                gt = info[i]['Covid_status']
+                score = scores[i, self.class2index['p']]
+                ground_truth.append(filekey + ' ' + gt)
+                pred_scores.append(filekey + ' ' + str(score))
+
             if gt == 'n' and score < 0.5:
                 correct += 1
             if gt == 'p' and score >= 0.5:
@@ -712,6 +722,13 @@ class Solver(object):
                     for item in pred_scores:
                         f.write("%s\n" % item)
         paths = {'gt_path': gt_path, 'score_path': score_path}
+
+        out_file_path = os.path.join(self.eval_type_dir, 'outfile.pkl')
+        utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
+        auc = utils.summary(folname=self.eval_type_dir, scores=out_file_path, iterations=0)
+
+
+
         return paths, os.path.join(self.eval_type_dir, 'scores'), self.eval_type_dir
         # out_file_path = os.path.join(self.specific_model_dir, 'outfile.pkl')
         # utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
@@ -784,11 +801,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_mf_finetune_mfcc_speech_CNN_timewarp')
+    parser.add_argument('--TRIAL', type=str, default='dummy_eval_not_working_2')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
-    parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
+    parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=True)
     parser.add_argument('--FOLD', type=str, default='1')
-    parser.add_argument('--RESTORE_PATH', type=str, default='')
+    parser.add_argument('--RESTORE_PATH', type=str, default='exps/speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy_fold1/models/114000-G.ckpt')
     parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_20ff_mfcc_APC_CNN/models/90000-G.ckpt')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
