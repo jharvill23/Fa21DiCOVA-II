@@ -676,7 +676,9 @@ class Solver(object):
                                   shuffle=True, collate_fn=val_data.collate, drop_last=True)
         self.index2class = val_data.index2class
         self.class2index = val_data.class2index
+        correct = 0
         for batch_number, features in tqdm(enumerate(val_gen)):
+            self.G = self.G.train()
             predictions = self.forward_pass(batch_data=features, margin_config=False)
             predictions = predictions.detach().cpu().numpy()
             scores = softmax(predictions, axis=1)
@@ -689,9 +691,14 @@ class Solver(object):
             score = scores[0, self.class2index['p']]
             ground_truth.append(filekey + ' ' + gt)
             pred_scores.append(filekey + ' ' + str(score))
+            if gt == 'n' and score < 0.5:
+                correct += 1
+            if gt == 'p' and score >= 0.5:
+                correct += 1
         """Sort the lists in alphabetical order"""
         ground_truth.sort()
         pred_scores.sort()
+        print('Dummy accuracy: ' + str(correct/len(ground_truth)))
 
         """Write the files"""
         gt_path = os.path.join(self.specific_model_dir, 'val_labels')

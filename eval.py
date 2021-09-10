@@ -71,7 +71,7 @@ def main(args):
 
     outfiles = []
     input_TRIAL = args.TRIAL  # need to modify this variable for use in solver
-    for fold in ['1', '2', '3', '4', '5']:
+    for fold in ['1', '0', '2', '3', '4']:
         paths = []
         eval_paths = []
         for checkpoint in best_models[fold]:
@@ -146,53 +146,53 @@ def main(args):
     folder = os.path.join(config.directories.exps, args.TRIAL, 'evaluations')
     utils.eval_summary(folname=folder, outfiles=outfiles)
 
-    """Take mean of probability for each fold on test data"""
-    val_scores = []
-    test_scores = {}
-
-    # test_folds_to_include = ['1', '2', '4']
-    # test_folds_to_include = ['1']
-    test_folds_to_include = ['1', '2', '3', '4', '5']
-    for fold in ['1', '2', '3', '4', '5']:
-        val_file = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', fold, 'val', 'scores')
-        test_file = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', fold, 'blind', 'scores')
-
-        file1 = open(val_file, 'r')
-        Lines = file1.readlines()
-        for line in Lines:
-            line = line[:-1]
-            pieces = line.split(' ')
-            filename = pieces[0]
-            score = pieces[1]
-            val_scores.append(filename + ' ' + str(score))
-
-        if fold in test_folds_to_include:
-            file1 = open(test_file, 'r')
-            Lines = file1.readlines()
-            for line in Lines:
-                line = line[:-1]
-                pieces = line.split(' ')
-                filename = pieces[0]
-                score = pieces[1]
-                if filename not in test_scores:
-                    test_scores[filename] = [score]
-                else:
-                    test_scores[filename].append(score)
-    test_final_scores = []
-    for key, score_list in test_scores.items():
-        sum = 0
-        for score in score_list:
-            sum += float(score)
-        sum = sum/len(score_list)
-        test_final_scores.append(key + ' ' + str(sum))
-    test_score_path = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', 'test_scores.txt')
-    val_score_path = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', 'val_scores.txt')
-    with open(test_score_path, 'w') as f:
-        for item in test_final_scores:
-            f.write("%s\n" % item)
-    with open(val_score_path, 'w') as f:
-        for item in val_scores:
-            f.write("%s\n" % item)
+    # """Take mean of probability for each fold on test data"""
+    # val_scores = []
+    # test_scores = {}
+    #
+    # # test_folds_to_include = ['1', '2', '4']
+    # # test_folds_to_include = ['1']
+    # test_folds_to_include = ['1', '2', '3', '4', '5']
+    # for fold in ['1', '2', '3', '4', '5']:
+    #     val_file = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', fold, 'val', 'scores')
+    #     test_file = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', fold, 'blind', 'scores')
+    #
+    #     file1 = open(val_file, 'r')
+    #     Lines = file1.readlines()
+    #     for line in Lines:
+    #         line = line[:-1]
+    #         pieces = line.split(' ')
+    #         filename = pieces[0]
+    #         score = pieces[1]
+    #         val_scores.append(filename + ' ' + str(score))
+    #
+    #     if fold in test_folds_to_include:
+    #         file1 = open(test_file, 'r')
+    #         Lines = file1.readlines()
+    #         for line in Lines:
+    #             line = line[:-1]
+    #             pieces = line.split(' ')
+    #             filename = pieces[0]
+    #             score = pieces[1]
+    #             if filename not in test_scores:
+    #                 test_scores[filename] = [score]
+    #             else:
+    #                 test_scores[filename].append(score)
+    # test_final_scores = []
+    # for key, score_list in test_scores.items():
+    #     sum = 0
+    #     for score in score_list:
+    #         sum += float(score)
+    #     sum = sum/len(score_list)
+    #     test_final_scores.append(key + ' ' + str(sum))
+    # test_score_path = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', 'test_scores.txt')
+    # val_score_path = os.path.join(config.directories.exps, args.TRIAL, 'evaluations', 'val_scores.txt')
+    # with open(test_score_path, 'w') as f:
+    #     for item in test_final_scores:
+    #         f.write("%s\n" % item)
+    # with open(val_score_path, 'w') as f:
+    #     for item in val_scores:
+    #         f.write("%s\n" % item)
 
 
 
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     parser.add_argument('--TRAIN', action='store_true', default=False)
     parser.add_argument('--LOAD_MODEL', action='store_true', default=True)
     parser.add_argument('--FOLD', type=str, default='None')  # you must set it later so you want error if it's None
-    parser.add_argument('--ENSEMBLE_NUM_MODELS', type=str, default=3)
+    parser.add_argument('--ENSEMBLE_NUM_MODELS', type=str, default=1)
     parser.add_argument('--SAVE_METRIC', type=str, default='AUC')
     parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=True)
     parser.add_argument('--VAL_OR_TEST', type=str, default='VAL')  # VAL, TEST
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument('--MODEL_TYPE', type=str, default='CNN')  # CNN, LSTM
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float,
-                        default=0.98)  # randomly shorten clips during training (speech, breathing)
+                        default=0.3)  # randomly shorten clips during training (speech, breathing)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=True)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=False)  # don't make tb file in this script
     args = parser.parse_args()
