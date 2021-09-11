@@ -326,7 +326,7 @@ class PostPreTrainClassifierCNN(nn.Module):
         if self.args.INCLUDE_MF:
             data = x['intermediate']
             mf_indices = x['mf']
-            # TODO: """Need to get mf embedding and concatenate along intermediate representation's time axis"""
+            """Need to get mf embedding and concatenate along intermediate representation's time axis"""
             mf_embeds = self.embed(mf_indices)
             concattable_embeds = torch.unsqueeze(mf_embeds, dim=1)
             concattable_embeds = concattable_embeds.repeat(1, data.shape[1], 1)

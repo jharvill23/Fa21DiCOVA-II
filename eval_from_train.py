@@ -19,6 +19,7 @@ import torch.nn.functional as F
 import copy
 from scipy.special import softmax
 import argparse
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
 config = utils.get_config()
@@ -538,6 +539,63 @@ class Solver(object):
                 # except:
                 #     print('GPU out of memory or other training error...')
 
+    def NEW_eval_from_train(self):
+        iterations = 0
+        """Get train/test"""
+        train, val = self.get_train_test()
+        # for epoch in range(self.model_hyperparameters.num_epochs):
+        train_gen, val_gen = self.get_train_val_generators(train, val)
+        """Calculate validation loss"""
+        self.NEW_val_from_val_loss(val=val_gen, iterations=iterations)
+        # print(str(iterations) + ', val_loss: ' + str(val_loss))
+
+    def NEW_val_from_val_loss(self, val, iterations):
+        ground_truth = []
+        pred_scores = []
+        for batch_number, batch_data in tqdm(enumerate(val)):
+                files = batch_data['files']
+                self.G = self.G.eval()
+                predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+
+                if not self.args.PRETRAINING:
+                    predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    max_preds = np.argmax(predictions, axis=1)
+                    scores = softmax(predictions, axis=1)
+                    pred_value = [self.index2class[x] for x in max_preds]
+
+                    info = [self.metadata.get_feature_metadata(x) for x in files]
+
+                    for i, file in enumerate(files):
+                        filekey = file.split('/')[-1][:-4]
+                        gt = info[i]['Covid_status']
+                        score = scores[i, self.class2index['p']]
+                        ground_truth.append(filekey + ' ' + gt)
+                        pred_scores.append(filekey + ' ' + str(score))
+
+        if not self.args.PRETRAINING:
+            """Sort the lists in alphabetical order"""
+            ground_truth.sort()
+            pred_scores.sort()
+
+            """Write the files"""
+            gt_path = os.path.join(self.eval_save_dir, 'val_labels')
+            score_path = os.path.join(self.eval_save_dir, 'scores')
+
+            for path in [gt_path, score_path]:
+                with open(path, 'w') as f:
+                    if path == gt_path:
+                        for item in ground_truth:
+                            f.write("%s\n" % item)
+                    elif path == score_path:
+                        for item in pred_scores:
+                            f.write("%s\n" % item)
+
+            out_file_path = os.path.join(self.eval_save_dir, 'outfile.pkl')
+            utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
+            auc = utils.summary(folname=self.eval_save_dir, scores=out_file_path, iterations=iterations)
+
+
+
     def val_scores(self):
         self.evaluation_dir = os.path.join(self.exp_dir, 'evaluations')
         if not os.path.exists(self.evaluation_dir):
@@ -794,19 +852,79 @@ class Solver(object):
         json.dump(dict, a_file, indent=2)
         a_file.close()
 
+def get_best_models(tb_file, args, exp_dir):
+    event_acc = EventAccumulator(tb_file)
+    event_acc.Reload()
+    # Show all tags in the log file
+    print(event_acc.Tags())
+
+    # E. g. get wall clock, number of steps and value for a scalar 'Accuracy'
+    w_times, step_nums, vals = zip(*event_acc.Scalars(args.SAVE_METRIC))
+    """Make a dictionary with step_nums as keys and vals as values"""
+    data_dict = {}
+    for i, _ in enumerate(w_times):
+        data_dict[step_nums[i]] = vals[i]
+    if args.MAXIMIZE:
+        reverse = True
+    else:
+        reverse = False
+    sorted_data_dict = {k: v for k, v in sorted(data_dict.items(), key=lambda item: item[1], reverse=reverse)}
+    model_count = 0
+    keep_models = []
+    for timestep, metric_value in sorted_data_dict.items():
+        if model_count < args.ENSEMBLE_NUM_MODELS:
+            keep_models.append({'timestep': timestep, 'metric_value': metric_value})
+        model_count += 1
+    """Convert timesteps into model paths"""
+    keep_model_paths = []
+    for pair in keep_models:
+        timestep = pair['timestep']
+        filename = str(timestep) + '-G.ckpt'
+        model_path = os.path.join(exp_dir, 'models', filename)
+        assert os.path.exists(model_path)
+        keep_model_paths.append(model_path)
+    return keep_model_paths
+
 def main(args):
-    solver = Solver(config=config, args=args)
-    if args.TRAIN:
-        solver.train()
+    if not os.path.isdir(args.EVAL_DIR):
+        os.mkdir(args.EVAL_DIR)
+
+    dump_root = os.path.join(args.EVAL_DIR, args.TRIAL)
+    if not os.path.isdir(dump_root):
+        os.mkdir(dump_root)
+    """First collect the best models automatically (hand-picked them for first DiCOVA challenge)"""
+    best_models = {}
+    for fold in ['0', '1', '2', '3', '4']:
+        exp_dir = os.path.join('exps', args.TRIAL + '_fold' + fold)
+        tb_file = utils.collect_files(os.path.join(exp_dir, 'logs'))
+        assert len(tb_file) == 1
+        tb_file = tb_file[0]
+        best_models_fold = get_best_models(tb_file=tb_file, args=args, exp_dir=exp_dir)
+        best_models[fold] = best_models_fold
+
+    for fold in ['2', '1', '0', '3', '4']:
+        for good_model in best_models[fold]:
+            args.RESTORE_PATH = good_model
+            solver = Solver(config=config, args=args)
+            """Now we basically want to run the val_loss method from before but just save the results
+               in args.EVAL_DIR"""
+            model_num = good_model.split('/')[-1].split('-')[0]
+            save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
+            os.makedirs(save_dir, exist_ok=True)
+            solver.eval_save_dir = save_dir
+            solver.NEW_eval_from_train()
+            # if args.TRAIN:
+            #     solver.train()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_eval_not_working_4')
+    parser.add_argument('--TRIAL', type=str, default='speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=True)
     parser.add_argument('--FOLD', type=str, default='1')
-    parser.add_argument('--RESTORE_PATH', type=str, default='exps/speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy_fold1/models/114000-G.ckpt')
+    # parser.add_argument('--RESTORE_PATH', type=str, default='exps/speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy_fold1/models/114000-G.ckpt')
+    parser.add_argument('--RESTORE_PATH', type=str, default='')
     parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_20ff_mfcc_APC_CNN/models/90000-G.ckpt')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
@@ -821,5 +939,9 @@ if __name__ == "__main__":
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=True)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
+    parser.add_argument('--EVAL_DIR', type=str, default='evals')  # dump everything to this new folder
+    parser.add_argument('--ENSEMBLE_NUM_MODELS', type=str, default=3)
+    parser.add_argument('--SAVE_METRIC', type=str, default='AUC')
+    parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=True)
     args = parser.parse_args()
     main(args)

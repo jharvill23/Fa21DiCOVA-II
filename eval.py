@@ -58,7 +58,121 @@ def get_best_models(tb_file, args, exp_dir):
         keep_model_paths.append(model_path)
     return keep_model_paths
 
+def get_model_predictions(self):
+    """Something is very, very wrong here and I don't know what it is..."""
+    self.evaluation_dir = os.path.join(self.EVAL_DIR)
+    if not os.path.exists(self.evaluation_dir):
+        os.mkdir(self.evaluation_dir)
+    self.trial_dir = os.path.join(self.EVAL_DIR, self.input_TRIAL)
+    if not os.path.exists(self.trial_dir):
+        os.mkdir(self.trial_dir)
+    self.fold_dir = os.path.join(self.trial_dir, self.args.FOLD)
+    if not os.path.isdir(self.fold_dir):
+        os.mkdir(self.fold_dir)
+    self.eval_type_dir = os.path.join(self.fold_dir, 'val')
+    if not os.path.isdir(self.eval_type_dir):
+        os.mkdir(self.eval_type_dir)
+    self.specific_model_dir = os.path.join(self.eval_type_dir, self.model_number)
+    if not os.path.isdir(self.specific_model_dir):
+        os.mkdir(self.specific_model_dir)
+    """Get train/test"""
+    train, val = self.get_train_test()
+    train_gen, val_gen = self.get_train_val_generators(train, val)
+
+    self.restore_model(self.args.RESTORE_PATH)
+
+    # val_files_list = val['positive'] + val['negative']
+
+    ground_truth = []
+    pred_scores = []
+    TP = 0
+    TN = 0
+    FP = 0
+    FN = 0
+    val_loss = 0
+    for batch_number, batch_data in tqdm(enumerate(val_gen)):
+        # try:
+        files = batch_data['files']
+        self.G = self.G.eval()
+        predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+        loss = self.compute_loss(predictions=predictions, batch_data=batch_data, crossentropy_overwrite=True)
+        val_loss += loss.sum().item()
+
+        if not self.args.PRETRAINING:
+            predictions = predictions.detach().cpu().numpy()
+            max_preds = np.argmax(predictions, axis=1)
+            scores = softmax(predictions, axis=1)
+            pred_value = [self.index2class[x] for x in max_preds]
+
+            info = [self.metadata.get_feature_metadata(x) for x in files]
+
+            for i, file in enumerate(files):
+                filekey = file.split('/')[-1][:-4]
+                gt = info[i]['Covid_status']
+                score = scores[i, self.class2index['p']]
+                ground_truth.append(filekey + ' ' + gt)
+                pred_scores.append(filekey + ' ' + str(score))
+
+            for i, entry in enumerate(info):
+                if entry['Covid_status'] == 'p':
+                    if pred_value[i] == 'p':
+                        TP += 1
+                    elif pred_value[i] == 'n':
+                        FN += 1
+                elif entry['Covid_status'] == 'n':
+                    if pred_value[i] == 'n':
+                        TN += 1
+                    elif pred_value[i] == 'p':
+                        FP += 1
+
+    # except:
+    #     """"""
+    if not self.args.PRETRAINING:
+        """Sort the lists in alphabetical order"""
+        ground_truth.sort()
+        pred_scores.sort()
+
+        """Write the files"""
+        gt_path = os.path.join(self.specific_model_dir, 'val_labels')
+        score_path = os.path.join(self.specific_model_dir, 'scores')
+
+        for path in [gt_path, score_path]:
+            with open(path, 'w') as f:
+                if path == gt_path:
+                    for item in ground_truth:
+                        f.write("%s\n" % item)
+                elif path == score_path:
+                    for item in pred_scores:
+                        f.write("%s\n" % item)
+        try:
+            out_file_path = os.path.join(self.specific_model_dir, 'outfile.pkl')
+            utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
+            auc = utils.summary(folname=self.specific_model_dir, scores=out_file_path, iterations=0)
+        except:
+            auc = 0
+
+        if TP + FP > 0:
+            Prec = TP / (TP + FP)
+        else:
+            Prec = 0
+        if TP + FN > 0:
+            Rec = TP / (TP + FN)
+        else:
+            Rec = 0
+
+        acc = (TP + TN) / (TP + TN + FP + FN)
+
+        return val_loss, Prec, Rec, acc, auc
+    else:
+        return val_loss, 0, 0, 0, 0
+
 def main(args):
+    if not os.path.isdir(args.EVAL_DIR):
+        os.mkdir(args.EVAL_DIR)
+
+    dump_root = os.path.join(args.EVAL_DIR, args.TRIAL)
+    if not os.path.isdir(dump_root):
+        os.mkdir(dump_root)
     """First collect the best models automatically (hand-picked them for first DiCOVA challenge)"""
     best_models = {}
     for fold in ['0', '1', '2', '3', '4']:
@@ -82,6 +196,10 @@ def main(args):
             args.FOLD = fold
             args.TRIAL = os.path.join(input_TRIAL + '_fold' + fold)
             solver = Solver(config=config, args=args)
+            solver.EVAL_DIR = args.EVAL_DIR
+            solver.model_number = model_number
+            solver.input_TRIAL = input_TRIAL
+            _ = get_model_predictions(solver)
 
             specific_path, fold_score_path, eval_type_dir = solver.val_scores_ensemble(model_num=model_number)
             # eval_score_path, eval_ensemb_type_dir = solver.eval_ensemble(model_num=model_number)
@@ -199,6 +317,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
+    parser.add_argument('--EVAL_DIR', type=str, default='evals')  # dump everything to this new folder
     parser.add_argument('--TRIAL', type=str, default='speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy')  # add the folds in the loop
     parser.add_argument('--TRAIN', action='store_true', default=False)
     parser.add_argument('--LOAD_MODEL', action='store_true', default=True)
