@@ -915,6 +915,61 @@ def main(args):
             solver.NEW_eval_from_train()
             # if args.TRAIN:
             #     solver.train()
+    """Now we have the scores in their respective directories. We want to read them in and take the mean
+       from the ensemble and compute new scores based on that."""
+    outfiles = []
+    for fold in ['2', '1', '0', '3', '4']:
+        file_scores = {}
+
+        """Loading the val filenames here ONCE because they should be same for all three models per fold.
+           Doing this on purpose for debugging/checking everything should be the same."""
+        model_num = best_models[fold][0].split('/')[-1].split('-')[0]
+        ref_path = os.path.join('evals', args.TRIAL, fold, model_num, 'val_labels')
+        file1 = open(ref_path, 'r')
+        Lines = file1.readlines()
+        val_filenames = []
+        for line in Lines:
+            line = line[:-1]
+            pieces = line.split(' ')
+            filename = pieces[0]
+            val_filenames.append(filename)
+        for good_model in best_models[fold]:
+            """Load the scores"""
+            score_path = os.path.join('evals', args.TRIAL, fold, model_num, 'scores')
+            file1 = open(score_path, 'r')
+            Lines = file1.readlines()
+            for line in Lines:
+                line = line[:-1]
+                pieces = line.split(' ')
+                filename = pieces[0]
+                score = pieces[1]
+                if filename in val_filenames:
+                    if filename not in file_scores:
+                        file_scores[filename] = [score]
+                    else:
+                        file_scores[filename].append(score)
+        file_final_scores = []
+        for key, score_list in file_scores.items():
+            sum = 0
+            for score in score_list:
+                sum += float(score)
+            sum = sum / len(score_list)
+            file_final_scores.append(key + ' ' + str(sum))
+
+        fold_score_path = os.path.join('evals', args.TRIAL, fold, 'scores')
+        with open(fold_score_path, 'w') as f:
+            for item in file_final_scores:
+                f.write("%s\n" % item)
+
+        outfile_path = os.path.join('evals', args.TRIAL, fold, 'outfile.pkl')
+        ref_path = os.path.join('evals', args.TRIAL, fold, model_num, 'val_labels')  # same for all model_num for this fold
+        utils.scoring(refs=ref_path, sys_outs=fold_score_path, out_file=outfile_path)
+        auc = utils.summary(folname=os.path.join('evals', args.TRIAL, fold), scores=outfile_path, iterations=0)
+        outfiles.append(outfile_path)
+    folder = os.path.join('evals', args.TRIAL)
+    utils.eval_summary(folname=folder, outfiles=outfiles)
+    """Val stuff is done, now onto test data"""
+    stop = None
 
 
 if __name__ == "__main__":

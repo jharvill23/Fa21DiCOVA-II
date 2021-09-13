@@ -61,6 +61,36 @@ def prepare_DiCOVA(args):
         for _ in tqdm(executor.map(process, multiproc_data)):
             """"""
 
+def prepare_DiCOVA_Test(args):
+    """Collect all the audio files from their respective folders and provide
+       dict with original filepath and write name"""
+
+    files = {}
+    # Breathing #
+    files['breathing'] = utils.keep_flac(utils.collect_files(os.path.join(args.dataset_root, 'AUDIO', 'breathing')))
+    # Cough #
+    files['cough'] = utils.keep_flac(utils.collect_files(os.path.join(args.dataset_root, 'AUDIO', 'cough')))
+    # Speech #
+    files['speech'] = utils.keep_flac(utils.collect_files(os.path.join(args.dataset_root, 'AUDIO', 'speech')))
+
+    file_rename_list = []
+    for modality, filelist in files.items():
+        for file in filelist:
+            filename = file.split('/')[-1][:-5]  # remove .flac
+            new_name = filename + '_' + modality
+            dump_path = os.path.join(args.dump_dir, new_name + '.pkl')
+            file_rename_list.append({'og_path': file, 'dump_path': dump_path})
+
+    mel_log_spect = utils.Mel_log_spect()
+
+    multiproc_data = []
+    for file in file_rename_list:
+        multiproc_data.append({'file': file, 'feat_extractor': mel_log_spect})
+    # process(multiproc_data[2100])
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.num_task) as executor:
+        for _ in tqdm(executor.map(process, multiproc_data)):
+            """"""
+
 def prepare_LibriSpeech(args):
     """We use the train-clean-100 partition just as in Interspeech paper"""
     filelist = utils.keep_flac(utils.collect_files(os.path.join(args.dataset_root, 'train-clean-100')))
@@ -139,6 +169,8 @@ def main(args):
         os.makedirs(args.dump_dir, exist_ok=True)
     if args.dataset == 'DiCOVA':
         prepare_DiCOVA(args)
+    if args.dataset == 'DiCOVA_Test':
+        prepare_DiCOVA_Test(args)
     elif args.dataset == 'COUGHVID':
         """"""
         prepare_COUGHVID(args)
@@ -151,9 +183,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to extract features')
-    parser.add_argument('--dataset_root', type=str, default='COUGHVID')  # root of dataset for which to extract features
-    parser.add_argument('--dataset', type=str, default='COUGHVID')  # dataset name
-    parser.add_argument('--dump_dir', type=str, default='feats/COUGHVID')  # where to dump all spectrograms
-    parser.add_argument('--num_task', type=int, default=16)  # number of cpus for multiprocessing
+    parser.add_argument('--dataset_root', type=str, default='DiCOVA_Test')  # root of dataset for which to extract features
+    parser.add_argument('--dataset', type=str, default='DiCOVA_Test')  # dataset name
+    parser.add_argument('--dump_dir', type=str, default='feats/DiCOVA_Test')  # where to dump all spectrograms
+    parser.add_argument('--num_task', type=int, default=10)  # number of cpus for multiprocessing
     args = parser.parse_args()
     main(args)
