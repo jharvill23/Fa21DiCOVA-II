@@ -12,6 +12,7 @@ data:
 directories:
     exps: exps/
     dicova_root: DiCOVA/
+    dicova_test_root: DiCOVA_Test/
 
 model:
     name: dummy

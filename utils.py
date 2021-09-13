@@ -342,10 +342,12 @@ class Mel_log_spect(object):
         librosa.output.write_wav(write_path, y=audio, sr=self.sr, norm=True)
 
 class Metadata(object):
-    def __init__(self):
+    def __init__(self, test=False):
         """"""
         self.config = get_config()
         self.load_dicova()
+        if test:
+            self.load_TEST_dicova()
 
     def load_dicova(self):
         lines = []
@@ -357,6 +359,26 @@ class Metadata(object):
         metadata = {}
         for line in lines:
             metadata[line[0]] = {'Covid_status': line[1], 'Gender': line[2]}
+        self.dicova_metadata = metadata
+
+    def load_TEST_dicova(self):
+        lines = []
+        with open(os.path.join(self.config.directories.dicova_test_root, 'metadata.csv'), newline='') as f:
+            reader = csv.reader(f, delimiter=' ')
+            for i, row in enumerate(reader):
+                if i > 0:
+                    lines.append(row)
+        metadata = {}
+        for line in lines:
+            breathing_ID = line[0]
+            cough_ID = line[1]
+            speech_ID = line[2]
+            fusion_ID = line[3]
+            covid_data = {'Covid_status': line[4], 'Gender': line[5]}
+            metadata[breathing_ID] = covid_data
+            metadata[cough_ID] = covid_data
+            metadata[speech_ID] = covid_data
+            metadata[fusion_ID] = covid_data
         self.dicova_metadata = metadata
 
     def get_metadata(self, file, dataset='DiCOVA'):
