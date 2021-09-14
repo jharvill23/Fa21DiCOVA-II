@@ -20,7 +20,8 @@ model:
 pretraining2:
     lr: 0.0001
     # future frames was 10 but then I remembered we have sr of 40000 instead of 16000
-    future_frames: 20
+    # keep it at 10!!!!!!
+    future_frames: 10
     hidden_size: 400
     linear_hidden_size: 500
     encoder1_num_layers: 2
@@ -48,7 +49,7 @@ post_pretraining_classifier:
     model_save_step: 500
     num_epochs: 1000
     batch_size: 3
-    specaug_probability: 0.0
+    specaug_probability: 1.0
     pooled_size: 32
 
 classifier:

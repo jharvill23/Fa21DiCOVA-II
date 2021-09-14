@@ -74,7 +74,7 @@ class PostPreTrainClassifier(nn.Module):
         self.bidirectional = config.post_pretraining_classifier.bidirectional
         if self.args.INCLUDE_MF:
             """Add an embedding layer for male/female input embeddings"""
-            self.embed = nn.Embedding(num_embeddings=2)  # male/female classes only
+            self.embed = nn.Embedding(num_embeddings=2, embedding_dim=10)  # male/female classes only
             """Add the dimension of the embedding to the input size!!!"""
             self.input_size += self.embed.embedding_dim
 
@@ -90,6 +90,15 @@ class PostPreTrainClassifier(nn.Module):
         self.full3 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.output_dim)
 
     def forward(self, x):
+        if self.args.INCLUDE_MF:
+            data = x['intermediate']
+            mf_indices = x['mf']
+            """Need to get mf embedding and concatenate along intermediate representation's time axis"""
+            mf_embeds = self.embed(mf_indices)
+            concattable_embeds = torch.unsqueeze(mf_embeds, dim=1)
+            concattable_embeds = concattable_embeds.repeat(1, data.shape[1], 1)
+            x = torch.cat((data, concattable_embeds), dim=2)
+
         x, _ = self.encoder_lstm_1(x)
         out_forward = x[:, :, :self.hidden_size]
         out_backward = x[:, :, self.hidden_size:]
