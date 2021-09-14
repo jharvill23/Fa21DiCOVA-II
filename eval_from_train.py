@@ -567,7 +567,7 @@ class Solver(object):
                                                               'time_warp': self.args.TIME_WARP,
                                                               'input_type': self.args.MODEL_INPUT_TYPE,
                                                               'args': self.args})
-        val_gen = data.DataLoader(val_data, batch_size=5,
+        val_gen = data.DataLoader(val_data, batch_size=1,  # was 5
                                   shuffle=True, collate_fn=val_data.collate, drop_last=False)
 
         """Calculate validation loss"""
@@ -613,7 +613,8 @@ class Solver(object):
                 predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
 
                 if not self.args.PRETRAINING:
-                    predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    # predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    predictions = predictions.detach().cpu().numpy()
                     max_preds = np.argmax(predictions, axis=1)
                     scores = softmax(predictions, axis=1)
                     pred_value = [self.index2class[x] for x in max_preds]
