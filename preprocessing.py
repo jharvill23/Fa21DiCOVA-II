@@ -143,6 +143,34 @@ def prepare_COUGHVID(args):
         for _ in tqdm(executor.map(process, multiproc_data)):
             """"""
 
+def prepare_Cambridge(args):
+    """We use the train-clean-100 partition just as in Interspeech paper"""
+    filelist = utils.collect_files(args.dataset_root)
+    """Only keep those files with the string 'breath' in them"""
+    new_files = []
+    for file in filelist:
+        if 'breath' in file:
+            new_files.append(file)
+
+    filelist = utils.keep_wavs(new_files)
+    print(len(filelist))
+    file_rename_list = []
+    for file in filelist:
+        filename = file.replace('/', '~')  # the filenaming is weird so just keep original path as new unique id
+        new_name = filename[:-4]
+        dump_path = os.path.join(args.dump_dir, new_name + '.pkl')
+        file_rename_list.append({'og_path': file, 'dump_path': dump_path})
+
+    mel_log_spect = utils.Mel_log_spect()
+
+    multiproc_data = []
+    for file in file_rename_list:
+        multiproc_data.append({'file': file, 'feat_extractor': mel_log_spect})
+    # process(multiproc_data[80])
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.num_task) as executor:
+        for _ in tqdm(executor.map(process, multiproc_data)):
+            """"""
+
 
 
 def process(data):
@@ -169,8 +197,10 @@ def main(args):
         os.makedirs(args.dump_dir, exist_ok=True)
     if args.dataset == 'DiCOVA':
         prepare_DiCOVA(args)
-    if args.dataset == 'DiCOVA_Test':
+    elif args.dataset == 'DiCOVA_Test':
         prepare_DiCOVA_Test(args)
+    elif args.dataset == 'Cambridge':
+        prepare_Cambridge(args)
     elif args.dataset == 'COUGHVID':
         """"""
         prepare_COUGHVID(args)
@@ -183,9 +213,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to extract features')
-    parser.add_argument('--dataset_root', type=str, default='DiCOVA_Test')  # root of dataset for which to extract features
-    parser.add_argument('--dataset', type=str, default='DiCOVA_Test')  # dataset name
-    parser.add_argument('--dump_dir', type=str, default='feats/DiCOVA_Test')  # where to dump all spectrograms
-    parser.add_argument('--num_task', type=int, default=10)  # number of cpus for multiprocessing
+    parser.add_argument('--dataset_root', type=str, default='Cambridge')  # root of dataset for which to extract features
+    parser.add_argument('--dataset', type=str, default='Cambridge')  # dataset name
+    parser.add_argument('--dump_dir', type=str, default='feats/Cambridge')  # where to dump all spectrograms
+    parser.add_argument('--num_task', type=int, default=6)  # number of cpus for multiprocessing
     args = parser.parse_args()
     main(args)

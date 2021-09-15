@@ -255,6 +255,13 @@ class Solver(object):
             train_files = training_files[0:train_val_split]
             val_files = training_files[train_val_split:]
             return train_files, val_files
+        elif self.args.TRAIN_DATASET == 'Cambridge':
+            """"""
+            training_files = utils.collect_files(self.args.FEAT_DIR)
+            train_val_split = int(0.97 * len(training_files))
+            train_files = training_files[0:train_val_split]
+            val_files = training_files[train_val_split:]
+            return train_files, val_files
 
     def forward_pass(self, batch_data, margin_config=False):
         if not margin_config:
@@ -474,7 +481,7 @@ class Solver(object):
             val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
                                       shuffle=True, collate_fn=val_data.collate, drop_last=True)
             return train_gen, val_gen
-        elif self.args.TRAIN_DATASET == 'LibriSpeech':
+        elif self.args.TRAIN_DATASET == 'LibriSpeech' or self.args.TRAIN_DATASET == 'Cambridge':
             """"""
             train_files_list = train
             val_files_list = val
@@ -802,24 +809,24 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_cough_fold1')
+    parser.add_argument('--TRIAL', type=str, default='dummy_breathing_pretraining')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
-    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
-    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
-    parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
-    parser.add_argument('--MODALITY', type=str, default='cough')
-    parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
+    parser.add_argument('--PRETRAINING', type=utils.str2bool, default=True)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--LOSS', type=str, default='APC')  # crossentropy, APC, margin
+    parser.add_argument('--MODALITY', type=str, default='breathing')
+    parser.add_argument('--FEAT_DIR', type=str, default='feats/Cambridge')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy, mfcc
     parser.add_argument('--MODEL_TYPE', type=str, default='LSTM')  # CNN, LSTM
-    parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
-    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.85)  # randomly shorten clips during training (speech, breathing)
-    parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=True)  # include male/female metadata
+    parser.add_argument('--TRAIN_DATASET', type=str, default='Cambridge')  # DiCOVA, COUGHVID, LibriSpeech
+    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
     args = parser.parse_args()
     main(args)

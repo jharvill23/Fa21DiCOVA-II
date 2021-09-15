@@ -75,7 +75,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--EXP_DIR', type=str, default='None___')
+    parser.add_argument('--EXP_DIR', type=str, default='exps/speech_MF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_fold0')
     parser.add_argument('--NUM_SAVE_MODELS', type=int, default=5)
     parser.add_argument('--SAVE_METRIC', type=str, default='AUC')  # Be very careful with this!!!
     parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=True)  # Be very careful with this!!!
