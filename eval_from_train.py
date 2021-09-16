@@ -598,8 +598,8 @@ class Solver(object):
                                                               'time_warp': self.args.TIME_WARP,
                                                               'input_type': self.args.MODEL_INPUT_TYPE,
                                                               'args': self.args})
-        test_gen = data.DataLoader(test_data, batch_size=self.model_hyperparameters.batch_size,
-                                  shuffle=True, collate_fn=test_data.collate, drop_last=True)
+        test_gen = data.DataLoader(test_data, batch_size=1,
+                                  shuffle=True, collate_fn=test_data.collate, drop_last=False)
         """Calculate validation loss"""
         self.NEW_Test_val_from_val_loss(test=test_gen, iterations=iterations)
         # print(str(iterations) + ', val_loss: ' + str(val_loss))
@@ -661,7 +661,8 @@ class Solver(object):
                 predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
 
                 if not self.args.PRETRAINING:
-                    predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    # predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    predictions = predictions.detach().cpu().numpy()
                     max_preds = np.argmax(predictions, axis=1)
                     scores = softmax(predictions, axis=1)
                     # pred_value = [self.index2class[x] for x in max_preds]
@@ -1001,26 +1002,26 @@ def main(args):
         best_models_fold = get_best_models(tb_file=tb_file, args=args, exp_dir=exp_dir)
         best_models[fold] = best_models_fold
 
-    for fold in ['2', '1', '0', '3', '4']:
-        for good_model in best_models[fold]:
-            args.RESTORE_PATH = good_model
-            args.FOLD = fold
-            solver = Solver(config=config, args=args)
-            """Now we basically want to run the val_loss method from before but just save the results
-               in args.EVAL_DIR"""
-            model_num = good_model.split('/')[-1].split('-')[0]
-            save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
-            os.makedirs(save_dir, exist_ok=True)
-            solver.eval_save_dir = save_dir
-            solver.NEW_eval_from_train()
+    # for fold in ['1', '2', '0', '3', '4']:
+    #     for good_model in best_models[fold]:
+    #         args.RESTORE_PATH = good_model
+    #         args.FOLD = fold
+    #         solver = Solver(config=config, args=args)
+    #         """Now we basically want to run the val_loss method from before but just save the results
+    #            in args.EVAL_DIR"""
+    #         model_num = good_model.split('/')[-1].split('-')[0]
+    #         save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
+    #         os.makedirs(save_dir, exist_ok=True)
+    #         solver.eval_save_dir = save_dir
+    #         solver.NEW_eval_from_train()
             # if args.TRAIN:
             #     solver.train()
     """Now we have the scores in their respective directories. We want to read them in and take the mean
        from the ensemble and compute new scores based on that."""
     outfiles = []
     val_score_paths = []
-    """There are problems with files either being extra or missing for the validation data!!! FIX THIS!!!"""
-    for fold in ['2', '1', '0', '3', '4']:
+    """There were problems with files either being extra or missing for val, drop_last was True in dataloader"""
+    for fold in ['1', '2', '0', '3', '4']:
         file_scores = {}
 
         """Loading the val filenames here ONCE because they should be same for all three models per fold.
@@ -1072,77 +1073,94 @@ def main(args):
         val_score_paths.append(fold_score_path)
     folder = os.path.join('evals', args.TRIAL)
     utils.eval_summary(folname=folder, outfiles=outfiles)
+    """Put all the val scores into one file"""
+    all_val_scores = []
+    for score_path in val_score_paths:
+        file1 = open(score_path, 'r')
+        Lines = file1.readlines()
+        for line in Lines:
+            line = line[:-1]
+            """Need to remove _MODALITY from filename"""
+            pieces = line.split(' ')
+            filename = pieces[0]
+            filename = filename.split('_')[0]
+            score = pieces[1]
+            all_val_scores.append(filename + ' ' + score)
+    all_val_scores = sorted(all_val_scores)
+    val_score_path = os.path.join('evals', args.TRIAL, 'val_scores.txt')
+    with open(val_score_path, 'w') as f:
+        for item in all_val_scores:
+            f.write("%s\n" % item)
     """Val stuff is done, now onto test data"""
-    # for fold in ['2', '1', '0', '3', '4']:
-    #     for good_model in best_models[fold]:
-    #         args.RESTORE_PATH = good_model
-    #         solver = Solver(config=config, args=args)
-    #         """Now we basically want to run the val_loss method from before but just save the results
-    #            in args.EVAL_DIR"""
-    #         model_num = good_model.split('/')[-1].split('-')[0]
-    #         save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
-    #         os.makedirs(save_dir, exist_ok=True)
-    #         solver.eval_save_dir = save_dir
-    #         solver.NEW_Test_eval_from_train()
+    for fold in ['2', '1', '0', '3', '4']:
+        for good_model in best_models[fold]:
+            args.RESTORE_PATH = good_model
+            solver = Solver(config=config, args=args)
+            """Now we basically want to run the val_loss method from before but just save the results
+               in args.EVAL_DIR"""
+            model_num = good_model.split('/')[-1].split('-')[0]
+            save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
+            os.makedirs(save_dir, exist_ok=True)
+            solver.eval_save_dir = save_dir
+            solver.NEW_Test_eval_from_train()
 
-    # fold_save_paths = []
-    # for fold in ['2', '1', '0', '3', '4']:
-    #     file_scores = {}
-    #     """Loading the val filenames here ONCE because they should be same for all three models per fold.
-    #        Doing this on purpose for debugging/checking everything should be the same."""
-    #     for good_model in best_models[fold]:
-    #         model_num = good_model.split('/')[-1].split('-')[0]
-    #         """Load the scores"""
-    #         score_path = os.path.join('evals', args.TRIAL, fold, model_num, 'test_scores.txt')
-    #         file1 = open(score_path, 'r')
-    #         Lines = file1.readlines()
-    #         for line in Lines:
-    #             line = line[:-1]
-    #             pieces = line.split(' ')
-    #             filename = pieces[0]
-    #             score = pieces[1]
-    #             if filename not in file_scores:
-    #                 file_scores[filename] = [score]
-    #             else:
-    #                 file_scores[filename].append(score)
-    #     file_final_scores = []
-    #     for key, score_list in file_scores.items():
-    #         sum = 0
-    #         for score in score_list:
-    #             sum += float(score)
-    #         sum = sum / len(score_list)
-    #         file_final_scores.append(key + ' ' + str(sum))
-    #
-    #     fold_score_path = os.path.join('evals', args.TRIAL, fold, 'test_scores.txt')
-    #     with open(fold_score_path, 'w') as f:
-    #         for item in file_final_scores:
-    #             f.write("%s\n" % item)
-    #     fold_save_paths.append(fold_score_path)
-    # final_file_scores = {}
-    # for file in fold_save_paths:
-    #     file1 = open(file, 'r')
-    #     Lines = file1.readlines()
-    #     for line in Lines:
-    #         line = line[:-1]
-    #         pieces = line.split(' ')
-    #         filename = pieces[0]
-    #         score = pieces[1]
-    #         if filename not in final_file_scores:
-    #             final_file_scores[filename] = [score]
-    #         else:
-    #             final_file_scores[filename].append(score)
-    # file_FINAL_scores = []
-    # for key, score_list in final_file_scores.items():
-    #     sum = 0
-    #     for score in score_list:
-    #         sum += float(score)
-    #     sum = sum / len(score_list)
-    #     file_FINAL_scores.append(key + ' ' + str(sum))
-    # FINAL_score_path = os.path.join('evals', args.TRIAL, 'test_scores.txt')
-    # with open(FINAL_score_path, 'w') as f:
-    #     for item in file_final_scores:
-    #         f.write("%s\n" % item)
-    """Need to collect the validation scores into a file as well..."""
+    fold_save_paths = []
+    for fold in ['2', '1', '0', '3', '4']:
+        file_scores = {}
+        """Loading the val filenames here ONCE because they should be same for all three models per fold.
+           Doing this on purpose for debugging/checking everything should be the same."""
+        for good_model in best_models[fold]:
+            model_num = good_model.split('/')[-1].split('-')[0]
+            """Load the scores"""
+            score_path = os.path.join('evals', args.TRIAL, fold, model_num, 'test_scores.txt')
+            file1 = open(score_path, 'r')
+            Lines = file1.readlines()
+            for line in Lines:
+                line = line[:-1]
+                pieces = line.split(' ')
+                filename = pieces[0]
+                score = pieces[1]
+                if filename not in file_scores:
+                    file_scores[filename] = [score]
+                else:
+                    file_scores[filename].append(score)
+        file_final_scores = []
+        for key, score_list in file_scores.items():
+            sum = 0
+            for score in score_list:
+                sum += float(score)
+            sum = sum / len(score_list)
+            file_final_scores.append(key + ' ' + str(sum))
+
+        fold_score_path = os.path.join('evals', args.TRIAL, fold, 'test_scores.txt')
+        with open(fold_score_path, 'w') as f:
+            for item in file_final_scores:
+                f.write("%s\n" % item)
+        fold_save_paths.append(fold_score_path)
+    final_file_scores = {}
+    for file in fold_save_paths:
+        file1 = open(file, 'r')
+        Lines = file1.readlines()
+        for line in Lines:
+            line = line[:-1]
+            pieces = line.split(' ')
+            filename = pieces[0]
+            score = pieces[1]
+            if filename not in final_file_scores:
+                final_file_scores[filename] = [score]
+            else:
+                final_file_scores[filename].append(score)
+    file_FINAL_scores = []
+    for key, score_list in final_file_scores.items():
+        sum = 0
+        for score in score_list:
+            sum += float(score)
+        sum = sum / len(score_list)
+        file_FINAL_scores.append(key + ' ' + str(sum))
+    FINAL_score_path = os.path.join('evals', args.TRIAL, 'test_scores.txt')
+    with open(FINAL_score_path, 'w') as f:
+        for item in file_final_scores:
+            f.write("%s\n" % item)
 
 
 
@@ -1150,13 +1168,13 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy')
+    parser.add_argument('--TRIAL', type=str, default='speech_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=True)
     parser.add_argument('--FOLD', type=str, default='1')
     # parser.add_argument('--RESTORE_PATH', type=str, default='exps/speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy_fold1/models/114000-G.ckpt')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_20ff_mfcc_APC_CNN/models/90000-G.ckpt')
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
@@ -1164,11 +1182,11 @@ if __name__ == "__main__":
     parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=True)
-    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='mfcc')  # spectrogram, energy, mfcc
-    parser.add_argument('--MODEL_TYPE', type=str, default='CNN')  # CNN, LSTM
+    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy, mfcc
+    parser.add_argument('--MODEL_TYPE', type=str, default='LSTM')  # CNN, LSTM
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
-    parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=True)  # include male/female metadata
+    parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
     parser.add_argument('--EVAL_DIR', type=str, default='evals')  # dump everything to this new folder
     parser.add_argument('--ENSEMBLE_NUM_MODELS', type=str, default=3)
