@@ -809,7 +809,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_breathing_pretraining')
+    parser.add_argument('--TRIAL', type=str, default='dummy_breathing_pretraining_mfcc')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
@@ -822,7 +822,7 @@ if __name__ == "__main__":
     parser.add_argument('--FEAT_DIR', type=str, default='feats/Cambridge')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
-    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy, mfcc
+    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='mfcc')  # spectrogram, energy, mfcc
     parser.add_argument('--MODEL_TYPE', type=str, default='LSTM')  # CNN, LSTM
     parser.add_argument('--TRAIN_DATASET', type=str, default='Cambridge')  # DiCOVA, COUGHVID, LibriSpeech
     parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)

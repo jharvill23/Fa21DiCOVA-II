@@ -1002,18 +1002,18 @@ def main(args):
         best_models_fold = get_best_models(tb_file=tb_file, args=args, exp_dir=exp_dir)
         best_models[fold] = best_models_fold
 
-    # for fold in ['1', '2', '0', '3', '4']:
-    #     for good_model in best_models[fold]:
-    #         args.RESTORE_PATH = good_model
-    #         args.FOLD = fold
-    #         solver = Solver(config=config, args=args)
-    #         """Now we basically want to run the val_loss method from before but just save the results
-    #            in args.EVAL_DIR"""
-    #         model_num = good_model.split('/')[-1].split('-')[0]
-    #         save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
-    #         os.makedirs(save_dir, exist_ok=True)
-    #         solver.eval_save_dir = save_dir
-    #         solver.NEW_eval_from_train()
+    for fold in ['1', '2', '0', '3', '4']:
+        for good_model in best_models[fold]:
+            args.RESTORE_PATH = good_model
+            args.FOLD = fold
+            solver = Solver(config=config, args=args)
+            """Now we basically want to run the val_loss method from before but just save the results
+               in args.EVAL_DIR"""
+            model_num = good_model.split('/')[-1].split('-')[0]
+            save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
+            os.makedirs(save_dir, exist_ok=True)
+            solver.eval_save_dir = save_dir
+            solver.NEW_eval_from_train()
             # if args.TRAIN:
             #     solver.train()
     """Now we have the scores in their respective directories. We want to read them in and take the mean
@@ -1021,7 +1021,7 @@ def main(args):
     outfiles = []
     val_score_paths = []
     """There were problems with files either being extra or missing for val, drop_last was True in dataloader"""
-    for fold in ['1', '2', '0', '3', '4']:
+    for fold in ['0', '1', '2', '3', '4']:
         file_scores = {}
 
         """Loading the val filenames here ONCE because they should be same for all three models per fold.
@@ -1074,7 +1074,7 @@ def main(args):
     folder = os.path.join('evals', args.TRIAL)
     utils.eval_summary(folname=folder, outfiles=outfiles)
     """Put all the val scores into one file"""
-    all_val_scores = []
+    all_val_scores_dict = {}
     for score_path in val_score_paths:
         file1 = open(score_path, 'r')
         Lines = file1.readlines()
@@ -1085,9 +1085,21 @@ def main(args):
             filename = pieces[0]
             filename = filename.split('_')[0]
             score = pieces[1]
-            all_val_scores.append(filename + ' ' + score)
-    all_val_scores = sorted(all_val_scores)
-    val_score_path = os.path.join('evals', args.TRIAL, 'val_scores.txt')
+            # all_val_scores.append(filename + ' ' + score)
+            all_val_scores_dict[filename] = score
+    """Need to reorder based on provided order..."""
+    # Reorder files
+    all_val_scores = []
+    example_val_order = open("example_submission_track1/val_answer.csv", 'r')
+    Lines = example_val_order.readlines()
+    for line in Lines:
+        line = line[:-1]
+        pieces = line.split(' ')
+        filename = pieces[0]
+        my_score = all_val_scores_dict[filename]
+        all_val_scores.append(filename + ' ' + my_score)
+    # all_val_scores = sorted(all_val_scores)  # Don't do this, they want the files in order of fold 0 to fold 4
+    val_score_path = os.path.join('evals', args.TRIAL, 'val_answer.csv')
     with open(val_score_path, 'w') as f:
         for item in all_val_scores:
             f.write("%s\n" % item)
@@ -1150,16 +1162,32 @@ def main(args):
                 final_file_scores[filename] = [score]
             else:
                 final_file_scores[filename].append(score)
-    file_FINAL_scores = []
+
+    file_FINAL_scores_dict = {}
     for key, score_list in final_file_scores.items():
         sum = 0
         for score in score_list:
             sum += float(score)
         sum = sum / len(score_list)
-        file_FINAL_scores.append(key + ' ' + str(sum))
-    FINAL_score_path = os.path.join('evals', args.TRIAL, 'test_scores.txt')
+        # file_FINAL_scores.append(key + ' ' + str(sum))
+        file_FINAL_scores_dict[key] = str(sum)
+    """Need to reorder based on provided order..."""
+    file_FINAL_scores = []
+    example_val_order = open("example_submission_track1/test_answer.csv", 'r')
+    Lines = example_val_order.readlines()
+    file_converter = utils.get_test_filename_converter()
+    for line in Lines:
+        line = line[:-1]
+        pieces = line.split(' ')
+        filename = pieces[0]
+        """The example given is the breathing one, convert to the other modality name"""
+        modality_filename = file_converter['breathing'][filename][args.MODALITY]
+        my_score = file_FINAL_scores_dict[modality_filename]
+        file_FINAL_scores.append(modality_filename + ' ' + my_score)
+    # Reorder files
+    FINAL_score_path = os.path.join('evals', args.TRIAL, 'test_answer.csv')
     with open(FINAL_score_path, 'w') as f:
-        for item in file_final_scores:
+        for item in file_FINAL_scores:
             f.write("%s\n" % item)
 
 
@@ -1168,17 +1196,19 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='speech_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    # parser.add_argument('--TRIAL', type=str, default='speech_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--TRIAL', type=str, default='breathing_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=True)
     parser.add_argument('--FOLD', type=str, default='1')
     # parser.add_argument('--RESTORE_PATH', type=str, default='exps/speech_MF_CNN_yespretrainCNN_notimewarp_yesspecaug_mfcc_crossentropy_fold1/models/114000-G.ckpt')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
+    # parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/breathing_pretrain_10ff_spect_APC/models/75000-G.ckpt')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
-    parser.add_argument('--MODALITY', type=str, default='speech')
+    parser.add_argument('--MODALITY', type=str, default='breathing')
     parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=True)
@@ -1189,7 +1219,7 @@ if __name__ == "__main__":
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
     parser.add_argument('--EVAL_DIR', type=str, default='evals')  # dump everything to this new folder
-    parser.add_argument('--ENSEMBLE_NUM_MODELS', type=str, default=3)
+    parser.add_argument('--ENSEMBLE_NUM_MODELS', type=int, default=3)
     parser.add_argument('--SAVE_METRIC', type=str, default='AUC')
     parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=True)
     args = parser.parse_args()

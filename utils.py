@@ -301,6 +301,24 @@ def eval_summary(folname, outfiles):
         f.write("Average AUC: " + str(np.round(np.mean(np.array(data_auc)), 2)) + " standard deviation:" + str(
             np.round(np.std(np.array(data_auc)), 2)) + "\n")
 
+def get_test_filename_converter():
+    metadata = open('DiCOVA_Test/metadata.csv', 'r')
+    Lines = metadata.readlines()
+    full_dict = {'breathing': {}, 'cough': {}, 'speech': {}, 'fusion': {}}
+    for line in Lines[1:]:  # first line is the category labels
+        line = line[:-1]
+        pieces = line.split(' ')
+        breathing_ID = pieces[0]
+        cough_ID = pieces[1]
+        speech_ID = pieces[2]
+        fusion_ID = pieces[3]
+        datum = {'breathing': breathing_ID, 'cough': cough_ID, 'speech': speech_ID, 'fusion': fusion_ID}
+        full_dict['breathing'][breathing_ID] = datum
+        full_dict['cough'][cough_ID] = datum
+        full_dict['speech'][speech_ID] = datum
+        full_dict['fusion'][fusion_ID] = datum
+    return full_dict
+
 class Mel_log_spect(object):
     def __init__(self):
         self.config = get_config()
