@@ -1,6 +1,16 @@
 use_gpu: true
 
 # below params are what we now refer to as "OG" as in "original" from spring paper
+#data:
+#    sr: 16000
+#    shift_ms: 10
+#    fftl: 1024
+#    num_mels: 80
+#    hop_length: 160
+#    top_db: 120
+#    num_mfccs: 15
+
+# below params are what we now refer to as "OG12" as in "original" from spring paper with 12 MFCC instead of 15
 data:
     sr: 16000
     shift_ms: 10
@@ -8,7 +18,7 @@ data:
     num_mels: 80
     hop_length: 160
     top_db: 120
-    num_mfccs: 15
+    num_mfccs: 12
 
 # below params are what we have been using for everything up until the final week
 #data:

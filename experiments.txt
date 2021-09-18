@@ -147,5 +147,7 @@ CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL "speech_noMF_LSTM_yespretrain_no
 python3 preprocessing.py --dataset_root COUGHVID --dataset COUGHVID --dump_dir feats_OG/COUGHVID --num_task 6
 python3 preprocessing.py --dataset_root LibriSpeech --dataset LibriSpeech --dump_dir feats_OG/LibriSpeech --num_task 6
 
-
+### Pretraining OG MFCCs for speech ###
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_mfccOG_APC" --TRAIN true --LOAD_MODEL false --FOLD 1 --RESTORE_PATH '' --RESTORE_PRETRAINER_PATH '' --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --POS_NEG_SAMPLING_RATIO 1.0 --TIME_WARP false --MODEL_INPUT_TYPE mfcc --MODEL_TYPE LSTM --TRAIN_DATASET LibriSpeech --TRAIN_CLIP_FRACTION 0.3 --INCLUDE_MF false --USE_TENSORBOARD true
+CUDA_VISIBLE_DEVICES=1 python3 train.py --TRIAL "speech_pretrain_10ff_mfccOG12_APC" --TRAIN true --LOAD_MODEL false --FOLD 1 --RESTORE_PATH '' --RESTORE_PRETRAINER_PATH '' --PRETRAINING true --FROM_PRETRAINING false --LOSS APC --MODALITY speech --FEAT_DIR feats/LibriSpeech --POS_NEG_SAMPLING_RATIO 1.0 --TIME_WARP false --MODEL_INPUT_TYPE mfcc --MODEL_TYPE LSTM --TRAIN_DATASET LibriSpeech --TRAIN_CLIP_FRACTION 0.3 --INCLUDE_MF false --USE_TENSORBOARD true
 
