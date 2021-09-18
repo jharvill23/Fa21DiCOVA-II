@@ -116,14 +116,14 @@ def prepare_COUGHVID(args):
     filelist = utils.keep_webm(utils.collect_files(args.dataset_root))
     """Dump all .webm files to disk as .wav files first"""
     tmp_dump_dir = 'tmp_webm_wav'
-    if not os.path.isdir(tmp_dump_dir):
-        os.mkdir(tmp_dump_dir)
-    multiproc_data = []
-    for file in filelist:
-        multiproc_data.append({'file': file, 'tmp_dump_dir': tmp_dump_dir})
-    with concurrent.futures.ProcessPoolExecutor(max_workers=args.num_task) as executor:
-        for _ in tqdm(executor.map(webm_to_wav, multiproc_data)):
-            """"""
+    # if not os.path.isdir(tmp_dump_dir):
+    #     os.mkdir(tmp_dump_dir)
+    # multiproc_data = []
+    # for file in filelist:
+    #     multiproc_data.append({'file': file, 'tmp_dump_dir': tmp_dump_dir})
+    # with concurrent.futures.ProcessPoolExecutor(max_workers=args.num_task) as executor:
+    #     for _ in tqdm(executor.map(webm_to_wav, multiproc_data)):
+    #         """"""
 
     filelist = utils.keep_wavs(utils.collect_files(tmp_dump_dir))
     file_rename_list = []
@@ -213,9 +213,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to extract features')
-    parser.add_argument('--dataset_root', type=str, default='Cambridge')  # root of dataset for which to extract features
-    parser.add_argument('--dataset', type=str, default='Cambridge')  # dataset name
-    parser.add_argument('--dump_dir', type=str, default='feats/Cambridge')  # where to dump all spectrograms
-    parser.add_argument('--num_task', type=int, default=6)  # number of cpus for multiprocessing
+    parser.add_argument('--dataset_root', type=str, default='COUGHVID')  # root of dataset for which to extract features
+    parser.add_argument('--dataset', type=str, default='COUGHVID')  # dataset name
+    parser.add_argument('--dump_dir', type=str, default='feats_OG/COUGHVID')  # where to dump all spectrograms
+    parser.add_argument('--num_task', type=int, default=4)  # number of cpus for multiprocessing
     args = parser.parse_args()
     main(args)
