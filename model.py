@@ -11,19 +11,20 @@ from torch.nn.utils.rnn import pad_sequence
 config = utils.get_config()
 
 class Model(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(Model, self).__init__()
         self.config = config
         self.args = args
+        self.fusion = fusion
         model = eval(self.config.model.name)
-        self.model = model(self.config, self.args)
+        self.model = model(self.config, self.args, self.fusion)
 
     def forward(self, padded_input):
         return self.model(padded_input)
 
 
 class PreTrainer2(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(PreTrainer2, self).__init__()
         self.config = config
         self.args = args
@@ -60,10 +61,11 @@ class PreTrainer2(nn.Module):
         return x, intermediate_state
 
 class PostPreTrainClassifier(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(PostPreTrainClassifier, self).__init__()
         self.config = config
         self.args = args
+        self.fusion = fusion  # whether we use this model for fusion training, changes output behavior!!!
         self.input_size = self.config.pretraining2.hidden_size
         self.hidden_size = self.config.post_pretraining_classifier.hidden_size
         self.linear_hidden_size = self.config.post_pretraining_classifier.linear_hidden_size
@@ -111,11 +113,13 @@ class PostPreTrainClassifier(nn.Module):
         x = self.full2(x)
         x = self.dropout2(x)
         x = F.tanh(x)
+        if self.fusion:
+            return x
         x = self.full3(x)
         return x
 
 class Classifier(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(Classifier, self).__init__()
         self.config = config
         self.args = args
@@ -160,8 +164,9 @@ class Classifier(nn.Module):
         x = self.full3(x)
         return x
 
+
 class ClassifierCNN(nn.Module):  # ResNet50 +  Average Pool
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(ClassifierCNN, self).__init__()
         self.config = config
         self.args = args
@@ -175,9 +180,8 @@ class ClassifierCNN(nn.Module):  # ResNet50 +  Average Pool
         return x
 
 
-
 class PreTrainerCNN(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(PreTrainerCNN, self).__init__()
         # https://discuss.pytorch.org/t/accessing-intermediate-layers-of-a-pretrained-network-forward/12113
         self.config = config
@@ -269,7 +273,7 @@ class PreTrainerCNN(nn.Module):
 
 
 class PostPreTrainClassifierCNN(nn.Module):
-    def __init__(self, config, args):
+    def __init__(self, config, args, fusion=False):
         super(PostPreTrainClassifierCNN, self).__init__()
         # https://discuss.pytorch.org/t/accessing-intermediate-layers-of-a-pretrained-network-forward/12113
         self.config = config
@@ -355,6 +359,36 @@ class PostPreTrainClassifierCNN(nn.Module):
         x = self.pool(x)
         """Flatten along last two dimensions"""
         x = torch.flatten(x, start_dim=1, end_dim=2)
+        x = self.full1(x)
+        x = self.dropout1(x)
+        x = F.tanh(x)
+        x = self.full2(x)
+        x = self.dropout2(x)
+        x = F.tanh(x)
+        x = self.full3(x)
+        return x
+
+
+class FusionClassifier(nn.Module):
+    def __init__(self, config, args, fusion=False):
+        super(FusionClassifier, self).__init__()
+        self.config = config
+        self.args = args
+        self.input_size = 3 * self.config.post_pretraining_classifier.linear_hidden_size
+
+        self.linear_hidden_size = self.config.fusion.linear_hidden_size
+        self.batch_first = self.config.fusion.batch_first
+        self.dropout = self.config.fusion.dropout
+        self.output_dim = 2  # number of classes
+
+        self.full1 = nn.Linear(in_features=self.input_size, out_features=self.linear_hidden_size)
+        self.dropout1 = nn.Dropout(p=self.dropout)
+        self.full2 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.linear_hidden_size)
+        self.dropout2 = nn.Dropout(p=self.dropout)
+        self.full3 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.output_dim)
+
+    def forward(self, x):
+        """x is a fixed-length concatenation of the three modality features"""
         x = self.full1(x)
         x = self.dropout1(x)
         x = F.tanh(x)

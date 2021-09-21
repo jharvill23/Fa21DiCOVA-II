@@ -11,24 +11,24 @@ use_gpu: true
 #    num_mfccs: 15
 
 # below params are what we now refer to as "OG12" as in "original" from spring paper with 12 MFCC instead of 15
-data:
-    sr: 16000
-    shift_ms: 10
-    fftl: 1024
-    num_mels: 80
-    hop_length: 160
-    top_db: 120
-    num_mfccs: 12
+#data:
+#    sr: 16000
+#    shift_ms: 10
+#    fftl: 1024
+#    num_mels: 80
+#    hop_length: 160
+#    top_db: 120
+#    num_mfccs: 12
 
 # below params are what we have been using for everything up until the final week
-#data:
-#    sr: 40000
-#    shift_ms: 10
-#    fftl: 2048
-#    num_mels: 160
-#    hop_length: 400
-#    top_db: 120
-#    num_mfccs: 15
+data:
+    sr: 40000
+    shift_ms: 10
+    fftl: 2048
+    num_mels: 160
+    hop_length: 400
+    top_db: 120
+    num_mfccs: 15
 
 directories:
     exps: exps/
@@ -88,4 +88,19 @@ classifier:
     num_epochs: 1000
     batch_size: 3
     specaug_probability: 1.0
+
+fusion:
+    lr: 0.0001
+    linear_hidden_size: 100
+    batch_first: true
+    dropout: 0.1
+    opensmile_dropout: 0.1
+    incorrect_scaler: 1
+    log_step: 10
+    model_save_step: 50
+    num_epochs: 1000
+    batch_size: 10
+    specaug_probability: 1.0
+    pooled_size: 32
+
 
