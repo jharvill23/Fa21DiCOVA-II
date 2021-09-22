@@ -6,6 +6,7 @@ import torch
 import utils
 import torchvision.models as models
 from torch.nn.utils.rnn import pad_sequence
+import numpy as np
 
 
 config = utils.get_config()
@@ -399,6 +400,81 @@ class FusionClassifier(nn.Module):
         return x
 
 
+class TransformerClassifier(nn.Module):
+    def __init__(self, config, args, fusion=False):
+        super(TransformerClassifier, self).__init__()
+        self.config = config
+        self.args = args
+        self.input_size = 512  # Wav2Vec2 output size
+        self.reduction_size = self.config.transformer.reduction_size  # reduce each Wav2Vec2 frame to this size to help avoid overfitting!!!
+        self.model_dim = self.config.transformer.model_dim
+        self.num_heads = self.config.transformer.num_heads
+        self.num_layers = self.config.transformer.num_layers
+
+        self.linear_hidden_size = self.config.transformer.linear_hidden_size
+        self.batch_first = self.config.transformer.batch_first
+        self.dropout = self.config.transformer.dropout
+        self.output_dim = 2  # number of classes
+
+        self.reduce_input = nn.Linear(in_features=self.input_size, out_features=self.reduction_size)
+        self.inflate_input = nn.Linear(in_features=self.reduction_size, out_features=self.model_dim)
+
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.model_dim, nhead=self.num_heads)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=6)
+
+        """Add an adaptive pooling layer"""
+        self.pool = nn.AdaptiveAvgPool2d(self.config.transformer.pooled_size)
+        self.full1 = nn.Linear(in_features=self.config.transformer.pooled_size ** 2,
+                               out_features=self.linear_hidden_size)
+        self.dropout1 = nn.Dropout(p=self.dropout)
+        self.full2 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.linear_hidden_size)
+        self.dropout2 = nn.Dropout(p=self.dropout)
+        self.full3 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.output_dim)
+
+    def forward(self, x):
+        """Try with no positional encodings so that input acts like a set and not an ordered structure,
+           all in the name of avoiding overfitting"""
+        """Now we need to add positional encodings because it wasn't learning anything"""
+        # TODO: Positional encodings!!!
+        x = x.permute(1, 0, 2)
+        x = add_positional_encodings(x)
+        x = x.permute(1, 0, 2)
+        x = self.reduce_input(x)
+        x = self.inflate_input(x)
+        x = x.permute(1, 0, 2)
+        x = self.encoder(x)
+        x = x.permute(1, 0, 2)
+        x = self.pool(x)
+        """Flatten along last two dimensions"""
+        x = torch.flatten(x, start_dim=1, end_dim=2)
+        x = self.full1(x)
+        x = self.dropout1(x)
+        x = F.tanh(x)
+        x = self.full2(x)
+        x = self.dropout2(x)
+        x = F.tanh(x)
+        x = self.full3(x)
+        return x
+
+def positional_encodings(nframes, d_model):
+    times = np.arange(nframes, dtype=np.float)
+    frequencies = np.power(10000.0, -2 * np.arange(d_model / 2) / d_model)
+    phases = torch.tensor(data=np.outer(times, frequencies), dtype=torch.float)
+    return (torch.cat((torch.sin(phases), torch.cos(phases)), dim=1))
+
+def add_positional_encodings(batched_data):
+    """Add positional encodings to spectrograms in forward pass"""
+    device = batched_data.device
+    T = batched_data.shape[0]
+    E = batched_data.shape[2]
+    N = batched_data.shape[1]
+    pos_enc = positional_encodings(nframes=T, d_model=E)
+    pos_enc = torch.unsqueeze(pos_enc, dim=1)
+    pos_enc = pos_enc.expand(T, N, E).to(device)
+    # diff = pos_enc[:, 0, :] - pos_enc[:, 1, :]
+    # assert diff == 0
+    batched_data = batched_data + 1e-6 * pos_enc
+    return batched_data
 
 class ConvNorm(torch.nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1,

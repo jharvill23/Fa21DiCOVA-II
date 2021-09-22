@@ -247,6 +247,14 @@ CUDA_VISIBLE_DEVICES=1 python3 trainFusion.py --TRIAL "fusion_spect_crossentropy
 --MAXIMIZE true
 
 
+### transformer with Wav2Vec2 inputs as a set ###
+CUDA_VISIBLE_DEVICES=0 python3 train.py --TRIAL speech_Wav2Vec2_Transformer_fold1 --TRAIN true --LOAD_MODEL false \
+--FOLD 1 --RESTORE_PATH '' --RESTORE_PRETRAINER_PATH '' --PRETRAINING false --FROM_PRETRAINING false \
+--LOSS crossentropy --MODALITY speech --FEAT_DIR Wav2Vec2/DiCOVA --POS_NEG_SAMPLING_RATIO 1.0 \
+--TIME_WARP false --MODEL_INPUT_TYPE Wav2Vec2 --MODEL_TYPE Transformer --TRAIN_DATASET DiCOVA \
+--TRAIN_CLIP_FRACTION 0.3 --INCLUDE_MF false --USE_TENSORBOARD true
+
+
 
 
 

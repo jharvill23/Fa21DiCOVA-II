@@ -14,11 +14,12 @@ from torch.utils import data
 import json
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
-from dataset import DiCOVA_Dataset, DiCOVA_Dataset_Margin, LibriSpeech_Dataset, COUGHVID_Dataset, DiCOVA_Dataset_Wav2Vec2
+from dataset import DiCOVA_Dataset, DiCOVA_Dataset_Fusion, DiCOVA_Dataset_Margin, LibriSpeech_Dataset, COUGHVID_Dataset
 import torch.nn.functional as F
 import copy
 from scipy.special import softmax
 import argparse
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 
 config = utils.get_config()
@@ -39,16 +40,14 @@ class Solver(object):
         self.val_folds = os.path.join('val_folds', 'fold_' + self.fold, 'val_labels')
 
         # Training configurations.
-        if self.args.MODEL_TYPE == 'TransformerClassifier':
-            self.model_hyperparameters = self.config.transformer
-        else:
-            if self.args.PRETRAINING:
-                self.model_hyperparameters = self.config.pretraining2
-            else:
-                if self.args.FROM_PRETRAINING:
-                    self.model_hyperparameters = self.config.post_pretraining_classifier
-                else:
-                    self.model_hyperparameters = self.config.classifier
+        # if self.args.PRETRAINING:
+        #     self.model_hyperparameters = self.config.pretraining2
+        # else:
+        #     if self.args.FROM_PRETRAINING:
+        #         self.model_hyperparameters = self.config.post_pretraining_classifier
+        #     else:
+        #         self.model_hyperparameters = self.config.classifier
+        self.model_hyperparameters = self.config.fusion
 
         self.g_lr = self.model_hyperparameters.lr
         self.torch_type = torch.float32
@@ -99,6 +98,9 @@ class Solver(object):
         self.log_step = self.model_hyperparameters.log_step
         self.model_save_step = self.model_hyperparameters.model_save_step
 
+        # Get the paths for the best model from each fold based on the tensorboard log files
+        self.get_best_modality_models()
+
         # Build the model
         self.build_model()
         if self.args.LOAD_MODEL:
@@ -106,29 +108,102 @@ class Solver(object):
         if self.use_tensorboard:
             self.build_tensorboard()
 
+    def tensorboard_best_models(self, tb_file, exp_root):
+        event_acc = EventAccumulator(tb_file)
+        event_acc.Reload()
+        # Show all tags in the log file
+        print(event_acc.Tags())
+
+        # E. g. get wall clock, number of steps and value for a scalar 'Accuracy'
+        w_times, step_nums, vals = zip(*event_acc.Scalars(self.args.SAVE_METRIC))
+        """Make a dictionary with step_nums as keys and vals as values"""
+        data_dict = {}
+        for i, _ in enumerate(w_times):
+            data_dict[step_nums[i]] = vals[i]
+        if args.MAXIMIZE:
+            reverse = True
+        else:
+            reverse = False
+        sorted_data_dict = {k: v for k, v in sorted(data_dict.items(), key=lambda item: item[1], reverse=reverse)}
+        model_count = 0
+        keep_models = []
+        for timestep, metric_value in sorted_data_dict.items():
+            if model_count < 1:
+                keep_models.append({'timestep': timestep, 'metric_value': metric_value})
+            model_count += 1
+        """Convert timesteps into model paths"""
+        keep_model_paths = []
+        for pair in keep_models:
+            timestep = pair['timestep']
+            filename = str(timestep) + '-G.ckpt'
+            model_path = os.path.join(exp_root, 'models', filename)
+            assert os.path.exists(model_path)
+            keep_model_paths.append(model_path)
+        return keep_model_paths
+
+    def get_best_modality_models(self):
+        self.best_modality_models = {}
+        for modality in ['speech', 'cough', 'breathing']:
+            if modality == 'speech':
+                tb_dir = os.path.join(self.args.RESTORE_SPEECH_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD, 'logs')
+                exp_root = os.path.join(self.args.RESTORE_SPEECH_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD)
+            elif modality == 'cough':
+                tb_dir = os.path.join(self.args.RESTORE_COUGH_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD, 'logs')
+                exp_root = os.path.join(self.args.RESTORE_COUGH_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD)
+            elif modality == 'breathing':
+                tb_dir = os.path.join(self.args.RESTORE_BREATHING_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD, 'logs')
+                exp_root = os.path.join(self.args.RESTORE_BREATHING_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD)
+            tb_path = utils.collect_files(tb_dir)
+            assert len(tb_path) == 1
+            tb_path = tb_path[0]
+            best_model = self.tensorboard_best_models(tb_file=tb_path, exp_root=exp_root)[0]
+            self.best_modality_models[modality] = best_model
+
     def build_model(self):
         if self.args.FROM_PRETRAINING:
-            """Build the model"""
-            pretrain_config = copy.deepcopy(self.config)
-            if self.args.MODEL_TYPE == 'LSTM':
-                pretrain_config.model.name = 'PreTrainer2'
-            elif self.args.MODEL_TYPE == 'CNN':
-                pretrain_config.model.name = 'PreTrainerCNN'
-            """Load the weights"""
-            self.pretrained = model.Model(pretrain_config, self.args)
-            pretrain_checkpoint = self._load(self.args.RESTORE_PRETRAINER_PATH)
-            print('Restoring pretrainer from ' + self.args.RESTORE_PRETRAINER_PATH)
-            self.pretrained.load_state_dict(pretrain_checkpoint['model'])
-            """Freeze pretrainer"""
-            for param in self.pretrained.parameters():
-                param.requires_grad = False
-            self.pretrained.to(self.device)
-            """Make trainer have input to take pretrained feature output dimension"""
-            train_config = copy.deepcopy(self.config)
-            if self.args.MODEL_TYPE == 'LSTM':
-                train_config.model.name = 'PostPreTrainClassifier'
-            elif self.args.MODEL_TYPE == 'CNN':
-                train_config.model.name = 'PostPreTrainClassifierCNN'
+            self.pretrained = {}
+            self.finetuned = {}
+            for modality in ['speech', 'cough', 'breathing']:
+                """Build the model"""
+                pretrain_config = copy.deepcopy(self.config)
+                if self.args.MODEL_TYPE == 'LSTM':
+                    pretrain_config.model.name = 'PreTrainer2'
+                elif self.args.MODEL_TYPE == 'CNN':
+                    pretrain_config.model.name = 'PreTrainerCNN'
+
+                if modality == 'speech':
+                    PRETRAINER_PATH = self.args.RESTORE_SPEECH_PRETRAINER_PATH
+                elif modality == 'cough':
+                    PRETRAINER_PATH = self.args.RESTORE_COUGH_PRETRAINER_PATH
+                elif modality == 'breathing':
+                    PRETRAINER_PATH = self.args.RESTORE_BREATHING_PRETRAINER_PATH
+
+                """Load the weights"""
+                self.pretrained[modality] = model.Model(pretrain_config, self.args)
+                pretrain_checkpoint = self._load(PRETRAINER_PATH)
+                print('Restoring pretrainer from ' + PRETRAINER_PATH)
+                self.pretrained[modality].load_state_dict(pretrain_checkpoint['model'])
+                """Freeze pretrainer"""
+                for param in self.pretrained[modality].parameters():
+                    param.requires_grad = False
+                self.pretrained[modality].to(self.device)
+                """Make trainer have input to take pretrained feature output dimension"""
+                finetuned_config = copy.deepcopy(self.config)
+                if self.args.MODEL_TYPE == 'LSTM':
+                    finetuned_config.model.name = 'PostPreTrainClassifier'
+                elif self.args.MODEL_TYPE == 'CNN':
+                    finetuned_config.model.name = 'PostPreTrainClassifierCNN'
+                FINETUNED_PATH = self.best_modality_models[modality]
+
+                self.finetuned[modality] = model.Model(finetuned_config, self.args, fusion=True)
+                finetuned_checkpoint = self._load(FINETUNED_PATH)
+                print('Restoring finetuned model from ' + FINETUNED_PATH)
+                self.finetuned[modality].load_state_dict(finetuned_checkpoint['model'])
+                """Freeze finetuned model"""
+                for param in self.finetuned[modality].parameters():
+                    param.requires_grad = False
+                self.finetuned[modality].to(self.device)
+
         elif self.args.PRETRAINING:
             train_config = copy.deepcopy(self.config)
             if self.args.MODEL_TYPE == 'LSTM':
@@ -137,11 +212,10 @@ class Solver(object):
                 train_config.model.name = 'PreTrainerCNN'
         else:
             train_config = copy.deepcopy(self.config)
-            if self.args.MODEL_TYPE == 'Transformer':
-                train_config.model.name = 'TransformerClassifier'
-            else:
-                train_config.model.name = 'Classifier'
-        self.G = model.Model(train_config, self.args)
+            train_config.model.name = 'Classifier'
+        fusion_config = copy.deepcopy(self.config)
+        fusion_config.model.name = 'FusionClassifier'
+        self.G = model.Model(fusion_config, self.args)
         self.g_optimizer = torch.optim.Adam(self.G.parameters(), self.g_lr)
         self.print_network(self.G, 'G')
         self.G.to(self.device)
@@ -196,6 +270,17 @@ class Solver(object):
             new_files.append(new_name)
         return new_files
 
+    def get_absolute_filepaths_fusion(self, files):
+        new_files = []
+        for file in files:
+            modality_triple = {}
+            for modality in ['speech', 'cough', 'breathing']:
+                new_name = os.path.join(self.args.FEAT_DIR, file + '_' + modality + '.pkl')
+                assert os.path.exists(new_name)
+                modality_triple[modality] = new_name
+            new_files.append(modality_triple)
+        return new_files
+
     def upsample_positive_class(self, negative, positive):
         """Balance the data by seeing positive COVID examples more often"""
         random.shuffle(negative)
@@ -238,10 +323,10 @@ class Solver(object):
             partition = partition[self.fold]
 
             # Get absolute filepaths depending on modality
-            partition['train_pos'] = self.get_absolute_filepaths(partition['train_pos'])
-            partition['train_neg'] = self.get_absolute_filepaths(partition['train_neg'])
-            partition['val_pos'] = self.get_absolute_filepaths(partition['val_pos'])
-            partition['val_neg'] = self.get_absolute_filepaths(partition['val_neg'])
+            partition['train_pos'] = self.get_absolute_filepaths_fusion(partition['train_pos'])
+            partition['train_neg'] = self.get_absolute_filepaths_fusion(partition['train_neg'])
+            partition['val_pos'] = self.get_absolute_filepaths_fusion(partition['val_pos'])
+            partition['val_neg'] = self.get_absolute_filepaths_fusion(partition['val_neg'])
 
             train_files = {'positive': partition['train_pos'], 'negative': partition['train_neg']}
             # test_files = {'positive': partition['test_positive'], 'negative': partition['test_negative']}
@@ -275,14 +360,25 @@ class Solver(object):
             files = batch_data['files']
             # labels = batch_data['labels']
             # scalers = batch_data['scalers']
-            if self.args.FROM_PRETRAINING:
-                _, intermediate = self.pretrained(spects)
-            else:
-                intermediate = spects
-            if self.args.INCLUDE_MF:
-                mf = batch_data['mf']
-                intermediate = {'intermediate': intermediate, 'mf': mf}
-            predictions = self.G(intermediate)
+            """Get the pretrained intermediate states first for each modality"""
+            intermediate = {}
+            for modality in ['speech', 'cough', 'breathing']:
+                if self.args.FROM_PRETRAINING:
+                    _, intermediate[modality] = self.pretrained[modality](spects[modality])
+                else:
+                    intermediate[modality] = spects[modality]
+                if self.args.INCLUDE_MF:
+                    mf = batch_data['mf']
+                    intermediate[modality] = {'intermediate': intermediate[modality], 'mf': mf}
+            """Next get the intermediate states output from the finetuned model for each modality"""
+            finetuned_intermediate = {}
+            for modality in ['speech', 'cough', 'breathing']:
+                finetuned_intermediate[modality] = self.finetuned[modality](intermediate[modality])
+            """Concatenate the fixed-length representations of all three modalities and pass to fusion network"""
+            fusion_input = torch.cat((finetuned_intermediate['speech'],
+                                      finetuned_intermediate['cough'],
+                                      finetuned_intermediate['breathing']), dim=1)
+            predictions = self.G(fusion_input)
             return predictions
         else:
             neg_spects = batch_data['neg_spects']
@@ -353,10 +449,10 @@ class Solver(object):
                     scores = softmax(predictions, axis=1)
                     pred_value = [self.index2class[x] for x in max_preds]
 
-                    info = [self.metadata.get_feature_metadata(x) for x in files]
+                    info = [self.metadata.get_feature_metadata(x['speech']) for x in files]
 
                     for i, file in enumerate(files):
-                        filekey = file.split('/')[-1][:-4]
+                        filekey = file['speech'].split('/')[-1][:-4]
                         gt = info[i]['Covid_status']
                         score = scores[i, self.class2index['p']]
                         ground_truth.append(filekey + ' ' + gt)
@@ -417,12 +513,12 @@ class Solver(object):
 
     def get_train_val_generators(self, train, val):
         """Return generators for training with different datasets"""
-        if self.args.TRAIN_DATASET == 'DiCOVA' and self.args.MODEL_TYPE == 'Transformer':
+        if self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS != 'margin':
             # Adjust how often we see positive examples
             train_files_list = self.upsample_positive_class(negative=train['negative'], positive=train['positive'])
             val_files_list = val['positive'] + val['negative']
             """Make dataloader"""
-            train_data = DiCOVA_Dataset_Wav2Vec2(config=self.config, params={'files': train_files_list,
+            train_data = DiCOVA_Dataset_Fusion(config=self.config, params={'files': train_files_list,
                                                                     'mode': 'train',
                                                                     'metadata_object': self.metadata,
                                                                     'specaugment': self.model_hyperparameters.specaug_probability,
@@ -433,33 +529,7 @@ class Solver(object):
                                         shuffle=True, collate_fn=train_data.collate, drop_last=True)
             self.index2class = train_data.index2class
             self.class2index = train_data.class2index
-            val_data = DiCOVA_Dataset_Wav2Vec2(config=self.config, params={'files': val_files_list,
-                                                                  'mode': 'val',
-                                                                  'metadata_object': self.metadata,
-                                                                  'specaugment': 0.0,
-                                                                  'time_warp': self.args.TIME_WARP,
-                                                                  'input_type': self.args.MODEL_INPUT_TYPE,
-                                                                  'args': self.args})
-            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
-                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
-            return train_gen, val_gen
-        elif self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS != 'margin':
-            # Adjust how often we see positive examples
-            train_files_list = self.upsample_positive_class(negative=train['negative'], positive=train['positive'])
-            val_files_list = val['positive'] + val['negative']
-            """Make dataloader"""
-            train_data = DiCOVA_Dataset(config=self.config, params={'files': train_files_list,
-                                                                    'mode': 'train',
-                                                                    'metadata_object': self.metadata,
-                                                                    'specaugment': self.model_hyperparameters.specaug_probability,
-                                                                    'time_warp': self.args.TIME_WARP,
-                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
-                                                                    'args': self.args})
-            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
-                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
-            self.index2class = train_data.index2class
-            self.class2index = train_data.class2index
-            val_data = DiCOVA_Dataset(config=self.config, params={'files': val_files_list,
+            val_data = DiCOVA_Dataset_Fusion(config=self.config, params={'files': val_files_list,
                                                                   'mode': 'val',
                                                                   'metadata_object': self.metadata,
                                                                   'specaugment': 0.0,
@@ -576,6 +646,164 @@ class Solver(object):
                     iterations += 1
                 # except:
                 #     print('GPU out of memory or other training error...')
+
+    def NEW_eval_from_train(self):
+        iterations = 0
+        """Get train/test"""
+        train, val = self.get_train_test()
+        # for epoch in range(self.model_hyperparameters.num_epochs):
+        # train_gen, val_gen = self.get_train_val_generators(train, val)
+
+        train_files_list = self.upsample_positive_class(negative=train['negative'], positive=train['positive'])
+        val_files_list = val['positive'] + val['negative']
+        """Make dataloader"""
+        train_data = DiCOVA_Dataset_Fusion(config=self.config, params={'files': train_files_list,
+                                                                'mode': 'train',
+                                                                'metadata_object': self.metadata,
+                                                                'specaugment': self.model_hyperparameters.specaug_probability,
+                                                                'time_warp': self.args.TIME_WARP,
+                                                                'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                'args': self.args})
+        train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                    shuffle=True, collate_fn=train_data.collate, drop_last=True)
+        self.index2class = train_data.index2class
+        self.class2index = train_data.class2index
+        val_data = DiCOVA_Dataset_Fusion(config=self.config, params={'files': val_files_list,
+                                                              'mode': 'val',
+                                                              'metadata_object': self.metadata,
+                                                              'specaugment': 0.0,
+                                                              'time_warp': self.args.TIME_WARP,
+                                                              'input_type': self.args.MODEL_INPUT_TYPE,
+                                                              'args': self.args})
+        val_gen = data.DataLoader(val_data, batch_size=1,  # was 5
+                                  shuffle=True, collate_fn=val_data.collate, drop_last=False)
+
+        """Calculate validation loss"""
+        self.NEW_val_from_val_loss(val=val_gen, iterations=iterations)
+        # print(str(iterations) + ', val_loss: ' + str(val_loss))
+
+    def get_test_data(self):
+        """Hard-code the directories here. Sloppy software engineering but it's the end stretch."""
+        all_test_files = utils.collect_files('feats/DiCOVA_Test')
+        modality_files = []
+        for file in all_test_files:
+            if self.args.MODALITY in file:
+                modality_files.append(file)
+        return modality_files
+
+    def NEW_Test_eval_from_train(self):
+        iterations = 0
+        """Get test data"""
+        test = self.get_test_data()
+        self.class2index, self.index2class = utils.get_class2index_and_index2class()
+
+        """Get new metadata object for test data!!!"""
+        self.metadata = utils.Metadata(test=True)
+        test_data = DiCOVA_Test_Dataset(config=self.config, params={'files': test,
+                                                              'mode': 'test',
+                                                              'metadata_object': self.metadata,
+                                                              'specaugment': 0.0,
+                                                              'time_warp': self.args.TIME_WARP,
+                                                              'input_type': self.args.MODEL_INPUT_TYPE,
+                                                              'args': self.args})
+        test_gen = data.DataLoader(test_data, batch_size=1,
+                                  shuffle=True, collate_fn=test_data.collate, drop_last=False)
+        """Calculate validation loss"""
+        self.NEW_Test_val_from_val_loss(test=test_gen, iterations=iterations)
+        # print(str(iterations) + ', val_loss: ' + str(val_loss))
+
+    def NEW_val_from_val_loss(self, val, iterations):
+        ground_truth = []
+        pred_scores = []
+        for batch_number, batch_data in tqdm(enumerate(val)):
+                files = batch_data['files']
+                self.G = self.G.eval()
+                predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+
+                if not self.args.PRETRAINING:
+                    # predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    predictions = predictions.detach().cpu().numpy()
+                    max_preds = np.argmax(predictions, axis=1)
+                    scores = softmax(predictions, axis=1)
+                    pred_value = [self.index2class[x] for x in max_preds]
+
+                    info = [self.metadata.get_feature_metadata(x['speech']) for x in files]
+
+                    for i, file in enumerate(files):
+                        filekey = file['speech'].split('/')[-1][:-4]
+                        gt = info[i]['Covid_status']
+                        score = scores[i, self.class2index['p']]
+                        ground_truth.append(filekey + ' ' + gt)
+                        pred_scores.append(filekey + ' ' + str(score))
+
+        if not self.args.PRETRAINING:
+            """Sort the lists in alphabetical order"""
+            ground_truth.sort()
+            pred_scores.sort()
+
+            """Write the files"""
+            gt_path = os.path.join(self.eval_save_dir, 'val_labels')
+            score_path = os.path.join(self.eval_save_dir, 'scores')
+
+            assert len(ground_truth) == len(pred_scores)
+
+            for path in [gt_path, score_path]:
+                with open(path, 'w') as f:
+                    if path == gt_path:
+                        for item in ground_truth:
+                            f.write("%s\n" % item)
+                    elif path == score_path:
+                        for item in pred_scores:
+                            f.write("%s\n" % item)
+
+            out_file_path = os.path.join(self.eval_save_dir, 'outfile.pkl')
+            utils.scoring(refs=gt_path, sys_outs=score_path, out_file=out_file_path)
+            auc = utils.summary(folname=self.eval_save_dir, scores=out_file_path, iterations=iterations)
+
+    def NEW_Test_val_from_val_loss(self, test, iterations):
+        # ground_truth = []
+        pred_scores = []
+        for batch_number, batch_data in tqdm(enumerate(test)):
+                files = batch_data['files']
+                self.G = self.G.eval()
+                predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+
+                if not self.args.PRETRAINING:
+                    # predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    predictions = predictions.detach().cpu().numpy()
+                    max_preds = np.argmax(predictions, axis=1)
+                    scores = softmax(predictions, axis=1)
+                    # pred_value = [self.index2class[x] for x in max_preds]
+
+                    info = [self.metadata.get_feature_metadata(x) for x in files]
+
+                    for i, file in enumerate(files):
+                        filekey = file.split('/')[-1][:-4]
+                        """Remove the modality tag after the underscore"""
+                        filekey = filekey.split('_')[0]
+                        # gt = info[i]['Covid_status']
+                        score = scores[i, self.class2index['p']]
+                        # ground_truth.append(filekey + ' ' + gt)
+                        pred_scores.append(filekey + ' ' + str(score))
+
+        if not self.args.PRETRAINING:
+            """Sort the lists in alphabetical order"""
+            # ground_truth.sort()
+            pred_scores.sort()
+
+            """Write the files"""
+            # gt_path = os.path.join(self.eval_save_dir, 'val_labels')
+            score_path = os.path.join(self.eval_save_dir, 'test_scores.txt')
+
+            for path in [score_path]:
+                with open(path, 'w') as f:
+                    # if path == gt_path:
+                    #     for item in ground_truth:
+                    #         f.write("%s\n" % item)
+                    if path == score_path:
+                        for item in pred_scores:
+                            f.write("%s\n" % item)
+
 
     def val_scores(self):
         self.evaluation_dir = os.path.join(self.exp_dir, 'evaluations')
@@ -833,32 +1061,281 @@ class Solver(object):
         json.dump(dict, a_file, indent=2)
         a_file.close()
 
+def get_best_models(tb_file, args, exp_dir):
+    event_acc = EventAccumulator(tb_file)
+    event_acc.Reload()
+    # Show all tags in the log file
+    print(event_acc.Tags())
+
+    # E. g. get wall clock, number of steps and value for a scalar 'Accuracy'
+    w_times, step_nums, vals = zip(*event_acc.Scalars(args.SAVE_METRIC))
+    """Make a dictionary with step_nums as keys and vals as values"""
+    data_dict = {}
+    for i, _ in enumerate(w_times):
+        data_dict[step_nums[i]] = vals[i]
+    if args.MAXIMIZE:
+        reverse = True
+    else:
+        reverse = False
+    sorted_data_dict = {k: v for k, v in sorted(data_dict.items(), key=lambda item: item[1], reverse=reverse)}
+    model_count = 0
+    keep_models = []
+    for timestep, metric_value in sorted_data_dict.items():
+        if model_count < args.ENSEMBLE_NUM_MODELS:
+            keep_models.append({'timestep': timestep, 'metric_value': metric_value})
+        model_count += 1
+    """Convert timesteps into model paths"""
+    keep_model_paths = []
+    for pair in keep_models:
+        timestep = pair['timestep']
+        filename = str(timestep) + '-G.ckpt'
+        model_path = os.path.join(exp_dir, 'models', filename)
+        assert os.path.exists(model_path)
+        keep_model_paths.append(model_path)
+    return keep_model_paths
+
 def main(args):
-    solver = Solver(config=config, args=args)
-    if args.TRAIN:
-        solver.train()
+
+    """Same thing is happening here where the inference predictions have something wrong. It's weird,
+    because some were almost entirely random where others reduced only a little bit."""
+
+    if not os.path.isdir(args.EVAL_DIR):
+        os.mkdir(args.EVAL_DIR)
+
+    dump_root = os.path.join(args.EVAL_DIR, args.TRIAL)
+    if not os.path.isdir(dump_root):
+        os.mkdir(dump_root)
+    """First collect the best models automatically (hand-picked them for first DiCOVA challenge)"""
+    best_models = {}
+    for fold in ['0', '1', '2', '3', '4']:
+        exp_dir = os.path.join('exps', args.TRIAL + '_fold' + fold)
+        tb_file = utils.collect_files(os.path.join(exp_dir, 'logs'))
+        assert len(tb_file) == 1
+        tb_file = tb_file[0]
+        best_models_fold = get_best_models(tb_file=tb_file, args=args, exp_dir=exp_dir)
+        best_models[fold] = best_models_fold
+
+    for fold in ['1', '2', '0', '3', '4']:
+        for good_model in best_models[fold]:
+            args.RESTORE_PATH = good_model
+            args.FOLD = fold
+            solver = Solver(config=config, args=args)
+            """Now we basically want to run the val_loss method from before but just save the results
+               in args.EVAL_DIR"""
+            model_num = good_model.split('/')[-1].split('-')[0]
+            save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
+            os.makedirs(save_dir, exist_ok=True)
+            solver.eval_save_dir = save_dir
+            solver.NEW_eval_from_train()
+            # if args.TRAIN:
+            #     solver.train()
+    # """Now we have the scores in their respective directories. We want to read them in and take the mean
+    #    from the ensemble and compute new scores based on that."""
+    # outfiles = []
+    # val_score_paths = []
+    # """There were problems with files either being extra or missing for val, drop_last was True in dataloader"""
+    # for fold in ['0', '1', '2', '3', '4']:
+    #     file_scores = {}
+    #
+    #     """Loading the val filenames here ONCE because they should be same for all three models per fold.
+    #        Doing this on purpose for debugging/checking everything should be the same."""
+    #     model_num = best_models[fold][0].split('/')[-1].split('-')[0]
+    #     ref_path = os.path.join('evals', args.TRIAL, fold, model_num, 'val_labels')
+    #     file1 = open(ref_path, 'r')
+    #     Lines = file1.readlines()
+    #     val_filenames = []
+    #     for line in Lines:
+    #         line = line[:-1]
+    #         pieces = line.split(' ')
+    #         filename = pieces[0]
+    #         val_filenames.append(filename)
+    #     for good_model in best_models[fold]:
+    #         model_num = good_model.split('/')[-1].split('-')[0]  # check this!!!
+    #         """Load the scores"""
+    #         score_path = os.path.join('evals', args.TRIAL, fold, model_num, 'scores')
+    #         file1 = open(score_path, 'r')
+    #         Lines = file1.readlines()
+    #         for line in Lines:
+    #             line = line[:-1]
+    #             pieces = line.split(' ')
+    #             filename = pieces[0]
+    #             score = pieces[1]
+    #             if filename in val_filenames:
+    #                 if filename not in file_scores:
+    #                     file_scores[filename] = [score]
+    #                 else:
+    #                     file_scores[filename].append(score)
+    #     file_final_scores = []
+    #     for key, score_list in file_scores.items():
+    #         sum = 0
+    #         for score in score_list:
+    #             sum += float(score)
+    #         sum = sum / len(score_list)
+    #         file_final_scores.append(key + ' ' + str(sum))
+    #
+    #     fold_score_path = os.path.join('evals', args.TRIAL, fold, 'scores')
+    #     with open(fold_score_path, 'w') as f:
+    #         for item in file_final_scores:
+    #             f.write("%s\n" % item)
+    #
+    #     outfile_path = os.path.join('evals', args.TRIAL, fold, 'outfile.pkl')
+    #     ref_path = os.path.join('evals', args.TRIAL, fold, model_num,
+    #                             'val_labels')  # same for all model_num for this fold
+    #     utils.scoring(refs=ref_path, sys_outs=fold_score_path, out_file=outfile_path)
+    #     auc = utils.summary(folname=os.path.join('evals', args.TRIAL, fold), scores=outfile_path, iterations=0)
+    #     outfiles.append(outfile_path)
+    #     val_score_paths.append(fold_score_path)
+    # folder = os.path.join('evals', args.TRIAL)
+    # utils.eval_summary(folname=folder, outfiles=outfiles)
+    # """Put all the val scores into one file"""
+    # all_val_scores_dict = {}
+    # for score_path in val_score_paths:
+    #     file1 = open(score_path, 'r')
+    #     Lines = file1.readlines()
+    #     for line in Lines:
+    #         line = line[:-1]
+    #         """Need to remove _MODALITY from filename"""
+    #         pieces = line.split(' ')
+    #         filename = pieces[0]
+    #         filename = filename.split('_')[0]
+    #         score = pieces[1]
+    #         # all_val_scores.append(filename + ' ' + score)
+    #         all_val_scores_dict[filename] = score
+    # """Need to reorder based on provided order..."""
+    # # Reorder files
+    # all_val_scores = []
+    # example_val_order = open("example_submission_track1/val_answer.csv", 'r')
+    # Lines = example_val_order.readlines()
+    # for line in Lines:
+    #     line = line[:-1]
+    #     pieces = line.split(' ')
+    #     filename = pieces[0]
+    #     my_score = all_val_scores_dict[filename]
+    #     all_val_scores.append(filename + ' ' + my_score)
+    # # all_val_scores = sorted(all_val_scores)  # Don't do this, they want the files in order of fold 0 to fold 4
+    # val_score_path = os.path.join('evals', args.TRIAL, 'val_answer.csv')
+    # with open(val_score_path, 'w') as f:
+    #     for item in all_val_scores:
+    #         f.write("%s\n" % item)
+    # """Val stuff is done, now onto test data"""
+    # for fold in ['2', '1', '0', '3', '4']:
+    #     for good_model in best_models[fold]:
+    #         args.RESTORE_PATH = good_model
+    #         solver = Solver(config=config, args=args)
+    #         """Now we basically want to run the val_loss method from before but just save the results
+    #            in args.EVAL_DIR"""
+    #         model_num = good_model.split('/')[-1].split('-')[0]
+    #         save_dir = os.path.join(args.EVAL_DIR, args.TRIAL, fold, model_num)
+    #         os.makedirs(save_dir, exist_ok=True)
+    #         solver.eval_save_dir = save_dir
+    #         solver.NEW_Test_eval_from_train()
+    #
+    # fold_save_paths = []
+    # for fold in ['2', '1', '0', '3', '4']:
+    #     file_scores = {}
+    #     """Loading the val filenames here ONCE because they should be same for all three models per fold.
+    #        Doing this on purpose for debugging/checking everything should be the same."""
+    #     for good_model in best_models[fold]:
+    #         model_num = good_model.split('/')[-1].split('-')[0]
+    #         """Load the scores"""
+    #         score_path = os.path.join('evals', args.TRIAL, fold, model_num, 'test_scores.txt')
+    #         file1 = open(score_path, 'r')
+    #         Lines = file1.readlines()
+    #         for line in Lines:
+    #             line = line[:-1]
+    #             pieces = line.split(' ')
+    #             filename = pieces[0]
+    #             score = pieces[1]
+    #             if filename not in file_scores:
+    #                 file_scores[filename] = [score]
+    #             else:
+    #                 file_scores[filename].append(score)
+    #     file_final_scores = []
+    #     for key, score_list in file_scores.items():
+    #         sum = 0
+    #         for score in score_list:
+    #             sum += float(score)
+    #         sum = sum / len(score_list)
+    #         file_final_scores.append(key + ' ' + str(sum))
+    #
+    #     fold_score_path = os.path.join('evals', args.TRIAL, fold, 'test_scores.txt')
+    #     with open(fold_score_path, 'w') as f:
+    #         for item in file_final_scores:
+    #             f.write("%s\n" % item)
+    #     fold_save_paths.append(fold_score_path)
+    # final_file_scores = {}
+    # for file in fold_save_paths:
+    #     file1 = open(file, 'r')
+    #     Lines = file1.readlines()
+    #     for line in Lines:
+    #         line = line[:-1]
+    #         pieces = line.split(' ')
+    #         filename = pieces[0]
+    #         score = pieces[1]
+    #         if filename not in final_file_scores:
+    #             final_file_scores[filename] = [score]
+    #         else:
+    #             final_file_scores[filename].append(score)
+    #
+    # file_FINAL_scores_dict = {}
+    # for key, score_list in final_file_scores.items():
+    #     sum = 0
+    #     for score in score_list:
+    #         sum += float(score)
+    #     sum = sum / len(score_list)
+    #     # file_FINAL_scores.append(key + ' ' + str(sum))
+    #     file_FINAL_scores_dict[key] = str(sum)
+    # """Need to reorder based on provided order..."""
+    # file_FINAL_scores = []
+    # example_val_order = open("example_submission_track1/test_answer.csv", 'r')
+    # Lines = example_val_order.readlines()
+    # file_converter = utils.get_test_filename_converter()
+    # for line in Lines:
+    #     line = line[:-1]
+    #     pieces = line.split(' ')
+    #     filename = pieces[0]
+    #     """The example given is the breathing one, convert to the other modality name"""
+    #     modality_filename = file_converter['breathing'][filename][args.MODALITY]
+    #     my_score = file_FINAL_scores_dict[modality_filename]
+    #     file_FINAL_scores.append(modality_filename + ' ' + my_score)
+    # # Reorder files
+    # FINAL_score_path = os.path.join('evals', args.TRIAL, 'test_answer.csv')
+    # with open(FINAL_score_path, 'w') as f:
+    #     for item in file_FINAL_scores:
+    #         f.write("%s\n" % item)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_speech_Wav2Vec2_Transformer')
+    parser.add_argument('--TRIAL', type=str, default='fusion_spect_crossentropy')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
+    parser.add_argument('--RESTORE_SPEECH_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
+    parser.add_argument('--RESTORE_COUGH_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
+    parser.add_argument('--RESTORE_BREATHING_PRETRAINER_PATH', type=str, default='exps/breathing_pretrain_10ff_spect_APC/models/75000-G.ckpt')
+    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
-    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
-    parser.add_argument('--MODALITY', type=str, default='speech')
-    parser.add_argument('--FEAT_DIR', type=str, default='Wav2Vec2/DiCOVA')
+    parser.add_argument('--MODALITY', type=str, default='fusion')
+    parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
-    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='Wav2Vec2')  # spectrogram, energy, mfcc, Wav2Vec2
-    parser.add_argument('--MODEL_TYPE', type=str, default='Transformer')  # CNN, LSTM, Transformer
+    parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy, mfcc
+    parser.add_argument('--MODEL_TYPE', type=str, default='LSTM')  # CNN, LSTM
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
-    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--TRAIN_CLIP_FRACTION_SPEECH', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--TRAIN_CLIP_FRACTION_COUGH', type=float, default=0.85)
+    parser.add_argument('--TRAIN_CLIP_FRACTION_BREATHING', type=float, default=0.3)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
+    parser.add_argument('--EVAL_DIR', type=str, default='evals')  # dump everything to this new folder
+    parser.add_argument('--ENSEMBLE_NUM_MODELS', type=int, default=3)
+    parser.add_argument('--SAVE_METRIC', type=str, default='AUC')
+    parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=True)
     args = parser.parse_args()
     main(args)

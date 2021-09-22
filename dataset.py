@@ -158,6 +158,106 @@ class DiCOVA_Dataset(object):
         return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers, 'mf': mf}
 
 
+
+class DiCOVA_Dataset_Wav2Vec2(object):
+    def __init__(self, config, params):
+        """Get the data and supporting files"""
+        self.config = config
+        'Initialization'
+        self.list_IDs = params['files']
+        self.mode = params["mode"]
+        self.metadata = params['metadata_object']
+        self.class2index, self.index2class = utils.get_class2index_and_index2class()
+        self.mf_class2index, self.mf_index2class = utils.get_mf_class2index_and_index2class()
+        self.incorrect_scaler = self.config.post_pretraining_classifier.incorrect_scaler
+        self.specaug_probability = params['specaugment']
+        self.time_warp = params['time_warp']
+        self.input_type = params['input_type']
+        self.args = params['args']
+
+    def __len__(self):
+        'Denotes the total number of samples'
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        'Get the data item'
+        file = self.list_IDs[index]
+        if self.mode == 'train':
+            metadata = self.metadata.get_feature_metadata(file, dataset='DiCOVA')
+            label = self.class2index[metadata['Covid_status']]
+            label = self.to_GPU(torch.from_numpy(np.asarray(label)))
+            mf = self.mf_class2index[metadata['Gender']]
+            mf = self.to_GPU(torch.from_numpy(np.asarray(mf)))
+        elif self.mode == 'val':
+            metadata = self.metadata.get_feature_metadata(file, dataset='DiCOVA')
+            label = self.class2index[metadata['Covid_status']]
+            label = self.to_GPU(torch.from_numpy(np.asarray(label)))
+            mf = self.mf_class2index[metadata['Gender']]
+            mf = self.to_GPU(torch.from_numpy(np.asarray(mf)))
+        else:
+            metadata = None
+            label = None
+
+        """We want to load the audio file. Then we want to perform specaugment."""
+        feats = utils.load(file, type='pickle')
+
+        """NEW: speech clips are VERY long so for training speedup/augmentation we take small window as training example"""
+        if self.mode == 'train':
+            # old_feats = feats
+            clip_length = feats.shape[0]
+            section_length = int(self.args.TRAIN_CLIP_FRACTION * clip_length)
+            new_start = int(random.uniform(0, clip_length - section_length))
+            feats = feats[new_start: new_start + section_length]
+
+        # """Let's randomly choose to include frames based on self.args.TRAIN_CLIP_FRACTION"""
+        # frames_to_include = []
+        # for frame in feats:
+        #     x = random.uniform(0, 1)
+        #     if x <= self.args.TRAIN_CLIP_FRACTION and self.mode != 'test':
+        #         frames_to_include.append(frame)
+        # """Note: We purposely don't add any positional encodings because we want to treat frames like a set!!!"""
+        #
+        # feats = np.asarray(frames_to_include)
+        feats = self.to_GPU(torch.from_numpy(feats))
+        feats = feats.to(torch.float32)
+
+        """Get incorrect_scaler value"""
+        if self.mode != 'test':
+            if metadata['Covid_status'] == 'p':
+                scaler = self.incorrect_scaler
+            else:
+                scaler = 1
+            scaler = self.to_GPU(torch.from_numpy(np.asarray(scaler)))
+            scaler = scaler.to(torch.float32)
+            scaler.requires_grad = True
+        else:
+            scaler = None
+        return file, feats, label, scaler, mf
+
+    def to_GPU(self, tensor):
+        if self.config.use_gpu == True:
+            tensor = tensor.cuda()
+            return tensor
+        else:
+            return tensor
+
+    def collate(self, data):
+        files = [item[0] for item in data]
+        spects = [item[1] for item in data]
+        labels = [item[2] for item in data]
+        scalers = [item[3] for item in data]
+        mf = [item[4] for item in data]
+        spects = pad_sequence(spects, batch_first=True, padding_value=0)
+        if self.mode != 'test':
+            labels = torch.stack([x for x in labels])
+            scalers = torch.stack([x for x in scalers])
+            mf = torch.stack([x for x in mf])
+        if self.input_type == 'energy':
+            spects = torch.unsqueeze(spects, dim=2)
+        return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers, 'mf': mf}
+
+
+
 class DiCOVA_Dataset_Fusion(object):
     def __init__(self, config, params):
         """Get the data and supporting files"""
