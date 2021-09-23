@@ -319,6 +319,7 @@ def get_test_filename_converter():
         full_dict['fusion'][fusion_ID] = datum
     return full_dict
 
+
 class Mel_log_spect(object):
     def __init__(self):
         self.config = get_config()
@@ -360,12 +361,14 @@ class Mel_log_spect(object):
         librosa.output.write_wav(write_path, y=audio, sr=self.sr, norm=True)
 
 class Metadata(object):
-    def __init__(self, test=False):
+    def __init__(self, test=False, clinical=False):
         """"""
         self.config = get_config()
         self.load_dicova()
         if test:
             self.load_TEST_dicova()
+        if clinical:
+            self.load_CLINICAL_dicova()
 
     def load_dicova(self):
         lines = []
@@ -398,6 +401,30 @@ class Metadata(object):
             metadata[speech_ID] = covid_data
             metadata[fusion_ID] = covid_data
         self.dicova_metadata = metadata
+
+    def load_CLINICAL_dicova(self):
+        self.clinical_feats = {}
+        for part in ['Test', 'Train']:
+            lines = []
+            temp_dict = {}
+            with open(os.path.join('Clinical_feats', 'Concat_Prob_' + part + '.csv'), newline='') as f:
+                reader = csv.reader(f, delimiter=' ')
+                for i, row in enumerate(reader):
+                    if i > 0:
+                        lines.append(row)
+                    else:
+                        row_headers = row
+            for line in lines:
+                line = line[0].split(',')
+                filename = line[0].split('.')[0]
+                dry = float(line[1])
+                long = float(line[2])
+                short = float(line[3])
+                wet = float(line[4])
+                wheeze = float(line[5])
+                temp_dict[filename] = np.asarray([dry, long, short, wet, wheeze])
+
+            self.clinical_feats[part] = temp_dict
 
     def get_metadata(self, file, dataset='DiCOVA'):
         if dataset == 'DiCOVA':

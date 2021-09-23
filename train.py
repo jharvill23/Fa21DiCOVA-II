@@ -83,7 +83,10 @@ class Solver(object):
             os.mkdir(self.val_scores_dir)
 
         """Training Data"""
-        self.metadata = utils.Metadata()
+        clinical = False
+        if self.args.INCLUDE_CLINICAL:
+            clinical = True
+        self.metadata = utils.Metadata(clinical=clinical)
         self.partition = utils.Partition()
 
         """Partition file"""
@@ -841,24 +844,25 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_speech_spect_TransformerLSTM')
+    parser.add_argument('--TRIAL', type=str, default='cough_yesClinical_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_fold1')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
-    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='')
+    parser.add_argument('--RESTORE_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
-    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
+    parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
-    parser.add_argument('--MODALITY', type=str, default='speech')
+    parser.add_argument('--MODALITY', type=str, default='cough')
     parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy, mfcc, Wav2Vec2
-    parser.add_argument('--MODEL_TYPE', type=str, default='Transformer')  # CNN, LSTM, Transformer
+    parser.add_argument('--MODEL_TYPE', type=str, default='LSTM')  # CNN, LSTM, Transformer
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
-    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.85)  # randomly shorten clips during training (speech, breathing)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
+    parser.add_argument('--INCLUDE_CLINICAL', type=utils.str2bool, default=True)  # whether to include clinical feats
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
     args = parser.parse_args()
     main(args)
