@@ -14,7 +14,7 @@ from torch.utils import data
 import json
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
-from dataset import DiCOVA_Dataset, DiCOVA_Dataset_Margin, LibriSpeech_Dataset, COUGHVID_Dataset, DiCOVA_Dataset_Wav2Vec2
+from dataset import DiCOVA_Dataset, DiCOVA_Dataset_Margin, LibriSpeech_Dataset, COUGHVID_Dataset, DiCOVA_Dataset_Wav2Vec2, DiCOVA_Dataset_Combo
 import torch.nn.functional as F
 import copy
 from scipy.special import softmax
@@ -191,9 +191,15 @@ class Solver(object):
     def get_absolute_filepaths(self, files):
         new_files = []
         for file in files:
-            new_name = os.path.join(self.args.FEAT_DIR, file + '_' + self.args.MODALITY + '.pkl')
-            assert os.path.exists(new_name)
-            new_files.append(new_name)
+            if self.args.MODALITY != 'fusion':
+                new_name = os.path.join(self.args.FEAT_DIR, file + '_' + self.args.MODALITY + '.pkl')
+                assert os.path.exists(new_name)
+                new_files.append(new_name)
+            else:
+                for mod in ['speech', 'breathing', 'cough']:
+                    new_name = os.path.join(self.args.FEAT_DIR, file + '_' + mod + '.pkl')
+                    assert os.path.exists(new_name)
+                    new_files.append(new_name)
         return new_files
 
     def upsample_positive_class(self, negative, positive):
@@ -237,7 +243,7 @@ class Solver(object):
             partition = self.partition.dicova_partition
             partition = partition[self.fold]
 
-            # Get absolute filepaths depending on modality
+            # Get absolute filepaths for ALL THREE modalities and combine files
             partition['train_pos'] = self.get_absolute_filepaths(partition['train_pos'])
             partition['train_neg'] = self.get_absolute_filepaths(partition['train_neg'])
             partition['val_pos'] = self.get_absolute_filepaths(partition['val_pos'])
@@ -434,6 +440,32 @@ class Solver(object):
             self.index2class = train_data.index2class
             self.class2index = train_data.class2index
             val_data = DiCOVA_Dataset_Wav2Vec2(config=self.config, params={'files': val_files_list,
+                                                                  'mode': 'val',
+                                                                  'metadata_object': self.metadata,
+                                                                  'specaugment': 0.0,
+                                                                  'time_warp': self.args.TIME_WARP,
+                                                                  'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                  'args': self.args})
+            val_gen = data.DataLoader(val_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=val_data.collate, drop_last=True)
+            return train_gen, val_gen
+        elif self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS != 'margin' and self.args.MODALITY == 'fusion':
+            # Adjust how often we see positive examples
+            train_files_list = self.upsample_positive_class(negative=train['negative'], positive=train['positive'])
+            val_files_list = val['positive'] + val['negative']
+            """Make dataloader"""
+            train_data = DiCOVA_Dataset_Combo(config=self.config, params={'files': train_files_list,
+                                                                    'mode': 'train',
+                                                                    'metadata_object': self.metadata,
+                                                                    'specaugment': self.model_hyperparameters.specaug_probability,
+                                                                    'time_warp': self.args.TIME_WARP,
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=True)
+            self.index2class = train_data.index2class
+            self.class2index = train_data.class2index
+            val_data = DiCOVA_Dataset_Combo(config=self.config, params={'files': val_files_list,
                                                                   'mode': 'val',
                                                                   'metadata_object': self.metadata,
                                                                   'specaugment': 0.0,
@@ -841,7 +873,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_speech_spect_TransformerLSTM')
+    parser.add_argument('--TRIAL', type=str, default='dummy_combo_spect_LSTM')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')
@@ -850,14 +882,16 @@ if __name__ == "__main__":
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
-    parser.add_argument('--MODALITY', type=str, default='speech')
+    parser.add_argument('--MODALITY', type=str, default='fusion')
     parser.add_argument('--FEAT_DIR', type=str, default='feats/DiCOVA')
     parser.add_argument('--POS_NEG_SAMPLING_RATIO', type=float, default=1.0)
     parser.add_argument('--TIME_WARP', type=utils.str2bool, default=False)
     parser.add_argument('--MODEL_INPUT_TYPE', type=str, default='spectrogram')  # spectrogram, energy, mfcc, Wav2Vec2
-    parser.add_argument('--MODEL_TYPE', type=str, default='Transformer')  # CNN, LSTM, Transformer
+    parser.add_argument('--MODEL_TYPE', type=str, default='LSTM')  # CNN, LSTM, Transformer
     parser.add_argument('--TRAIN_DATASET', type=str, default='DiCOVA')  # DiCOVA, COUGHVID, LibriSpeech
-    parser.add_argument('--TRAIN_CLIP_FRACTION', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--TRAIN_CLIP_FRACTION_SPEECH', type=float, default=0.3)  # randomly shorten clips during training (speech, breathing)
+    parser.add_argument('--TRAIN_CLIP_FRACTION_COUGH', type=float, default=0.85)
+    parser.add_argument('--TRAIN_CLIP_FRACTION_BREATHING', type=float, default=0.3)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
     args = parser.parse_args()

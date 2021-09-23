@@ -405,11 +405,22 @@ class TransformerClassifier(nn.Module):
         super(TransformerClassifier, self).__init__()
         self.config = config
         self.args = args
-        self.input_size = 512  # Wav2Vec2 output size
+        if self.args.MODEL_INPUT_TYPE == 'spectrogram':
+            self.input_size = self.config.data.num_mels
+        elif self.args.MODEL_INPUT_TYPE == 'energy':
+            self.input_size = 1
+        if self.args.MODEL_INPUT_TYPE == 'mfcc':
+            self.input_size = self.config.data.num_mfccs
+        if self.args.MODEL_INPUT_TYPE == 'mfcc':
+            self.input_size = 512  # Wav2Vec2 output size
         self.reduction_size = self.config.transformer.reduction_size  # reduce each Wav2Vec2 frame to this size to help avoid overfitting!!!
         self.model_dim = self.config.transformer.model_dim
         self.num_heads = self.config.transformer.num_heads
         self.num_layers = self.config.transformer.num_layers
+        self.encoder_num_layers = self.config.transformer.num_layers_lstm
+        self.hidden_size = self.config.transformer.hidden_size
+        self.dim_feedforward = self.config.transformer.dim_feedforward
+        self.bidirectional = self.config.transformer.bidirectional
 
         self.linear_hidden_size = self.config.transformer.linear_hidden_size
         self.batch_first = self.config.transformer.batch_first
@@ -419,12 +430,18 @@ class TransformerClassifier(nn.Module):
         self.reduce_input = nn.Linear(in_features=self.input_size, out_features=self.reduction_size)
         self.inflate_input = nn.Linear(in_features=self.reduction_size, out_features=self.model_dim)
 
-        encoder_layer = nn.TransformerEncoderLayer(d_model=self.model_dim, nhead=self.num_heads)
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=6)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.model_dim, nhead=self.num_heads, dim_feedforward=self.dim_feedforward)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.num_layers)
+
+        self.encoder_lstm_1 = nn.LSTM(input_size=self.model_dim, hidden_size=self.hidden_size,
+                                      num_layers=self.encoder_num_layers, batch_first=self.batch_first,
+                                      dropout=self.dropout, bidirectional=self.bidirectional)
 
         """Add an adaptive pooling layer"""
-        self.pool = nn.AdaptiveAvgPool2d(self.config.transformer.pooled_size)
-        self.full1 = nn.Linear(in_features=self.config.transformer.pooled_size ** 2,
+        # self.pool = nn.AdaptiveAvgPool2d(self.config.transformer.pooled_size)
+        # self.full1 = nn.Linear(in_features=self.config.transformer.pooled_size ** 2,
+        #                        out_features=self.linear_hidden_size)
+        self.full1 = nn.Linear(in_features=self.config.transformer.hidden_size * 2,
                                out_features=self.linear_hidden_size)
         self.dropout1 = nn.Dropout(p=self.dropout)
         self.full2 = nn.Linear(in_features=self.linear_hidden_size, out_features=self.linear_hidden_size)
@@ -435,7 +452,6 @@ class TransformerClassifier(nn.Module):
         """Try with no positional encodings so that input acts like a set and not an ordered structure,
            all in the name of avoiding overfitting"""
         """Now we need to add positional encodings because it wasn't learning anything"""
-        # TODO: Positional encodings!!!
         x = x.permute(1, 0, 2)
         x = add_positional_encodings(x)
         x = x.permute(1, 0, 2)
@@ -444,9 +460,18 @@ class TransformerClassifier(nn.Module):
         x = x.permute(1, 0, 2)
         x = self.encoder(x)
         x = x.permute(1, 0, 2)
-        x = self.pool(x)
-        """Flatten along last two dimensions"""
-        x = torch.flatten(x, start_dim=1, end_dim=2)
+
+        x, _ = self.encoder_lstm_1(x)
+        out_forward = x[:, :, :self.hidden_size]
+        out_backward = x[:, :, self.hidden_size:]
+        x_forward = out_forward[:, -1]
+        x_backward = out_backward[:, 0]
+        x = torch.cat((x_forward, x_backward), dim=1)
+
+
+        # x = self.pool(x)
+        # """Flatten along last two dimensions"""
+        # x = torch.flatten(x, start_dim=1, end_dim=2)
         x = self.full1(x)
         x = self.dropout1(x)
         x = F.tanh(x)

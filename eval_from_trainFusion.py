@@ -187,6 +187,7 @@ class Solver(object):
                 for param in self.pretrained[modality].parameters():
                     param.requires_grad = False
                 self.pretrained[modality].to(self.device)
+                self.pretrained[modality] = self.pretrained[modality].eval()
                 """Make trainer have input to take pretrained feature output dimension"""
                 finetuned_config = copy.deepcopy(self.config)
                 if self.args.MODEL_TYPE == 'LSTM':
@@ -203,6 +204,7 @@ class Solver(object):
                 for param in self.finetuned[modality].parameters():
                     param.requires_grad = False
                 self.finetuned[modality].to(self.device)
+                self.finetuned[modality] = self.finetuned[modality].eval()
 
         elif self.args.PRETRAINING:
             train_config = copy.deepcopy(self.config)
