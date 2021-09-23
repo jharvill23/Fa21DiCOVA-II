@@ -440,6 +440,15 @@ class Metadata(object):
             metadata = self.dicova_metadata[name]
             return metadata
 
+    def get_clinical_metadata(self, file, Train=True):
+        name = file.split('/')[-1]
+        name = name.split('_')[0]
+        if Train:
+            metadata = self.clinical_feats['Train'][name]
+        else:
+            metadata = self.clinical_feats['Test'][name]
+        return metadata
+
 class Partition(object):
     def __init__(self):
         """"""

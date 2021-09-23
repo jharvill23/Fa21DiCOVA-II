@@ -285,6 +285,9 @@ class Solver(object):
             if self.args.INCLUDE_MF:
                 mf = batch_data['mf']
                 intermediate = {'intermediate': intermediate, 'mf': mf}
+            if self.args.INCLUDE_CLINICAL:
+                clinical = batch_data['clinical']
+                intermediate = {'intermediate': intermediate, 'clinical': clinical}
             predictions = self.G(intermediate)
             return predictions
         else:

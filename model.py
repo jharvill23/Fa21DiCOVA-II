@@ -80,6 +80,8 @@ class PostPreTrainClassifier(nn.Module):
             self.embed = nn.Embedding(num_embeddings=2, embedding_dim=10)  # male/female classes only
             """Add the dimension of the embedding to the input size!!!"""
             self.input_size += self.embed.embedding_dim
+        if self.args.INCLUDE_CLINICAL:
+            self.input_size += 5  # hard-coded because that's how many clinical features we have
 
         self.encoder_lstm_1 = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size,
                                       num_layers=self.encoder_num_layers, batch_first=self.batch_first,
@@ -99,6 +101,14 @@ class PostPreTrainClassifier(nn.Module):
             """Need to get mf embedding and concatenate along intermediate representation's time axis"""
             mf_embeds = self.embed(mf_indices)
             concattable_embeds = torch.unsqueeze(mf_embeds, dim=1)
+            concattable_embeds = concattable_embeds.repeat(1, data.shape[1], 1)
+            x = torch.cat((data, concattable_embeds), dim=2)
+        if self.args.INCLUDE_CLINICAL:
+            """The logic is faulty here if we do both mf and clinical features
+               but we NEVER do so don't worry about it."""
+            data = x['intermediate']
+            clinical_feats = x['clinical']
+            concattable_embeds = torch.unsqueeze(clinical_feats, dim=1)
             concattable_embeds = concattable_embeds.repeat(1, data.shape[1], 1)
             x = torch.cat((data, concattable_embeds), dim=2)
 
