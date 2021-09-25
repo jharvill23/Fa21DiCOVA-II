@@ -125,9 +125,12 @@ class PostPreTrainClassifier(nn.Module):
         x = self.dropout2(x)
         x = F.tanh(x)
         if self.fusion:
+            fus = x
+            x = self.full3(x)
+            return x, fus
+        else:
+            x = self.full3(x)
             return x
-        x = self.full3(x)
-        return x
 
 class Classifier(nn.Module):
     def __init__(self, config, args, fusion=False):
