@@ -339,6 +339,7 @@ class Solver(object):
 
     def save_train_test_hidden_states(self, gen, iterations, Train=True):
         saved_hidden_states = {}
+        saved_scores = {}  # probabilities!!!
         if Train:
             mode = 'train'
         else:
@@ -350,6 +351,7 @@ class Solver(object):
             if self.args.FUSION_SETUP:
                 predictions, fus = self.forward_pass(batch_data=batch_data, margin_config=False)
                 fus = fus.detach().cpu().numpy()
+                scores = softmax(predictions.detach().cpu().numpy(), axis=1)
             else:
                 predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
 
@@ -358,9 +360,16 @@ class Solver(object):
                     filekey = file.split('/')[-1][:-4]
                     if self.args.FUSION_SETUP:
                         saved_hidden_states[filekey] = fus[i]
+                    score = scores[i, self.class2index['p']]
+                    saved_scores[filekey] = score
         if self.args.FUSION_SETUP:
             dump_path_fus = os.path.join(self.val_scores_dir, mode + '_hidden_states_' + str(iterations) + '.pkl')
             utils.dump(saved_hidden_states, dump_path_fus)
+        """Also save the probabilities!!! Remember the val probabilities are saved as scores_'iterations' in text format"""
+        dump_path_scores = os.path.join(self.val_scores_dir, mode + '_scores_' + str(iterations) + '.pkl')
+        utils.dump(saved_scores, dump_path_scores)
+        stop = None
+
 
     def val_loss(self, val, iterations):
         val_loss = 0
@@ -384,7 +393,7 @@ class Solver(object):
                 val_loss += loss.sum().item()
 
                 if not self.args.PRETRAINING:
-                    predictions = np.squeeze(predictions.detach().cpu().numpy())
+                    predictions = predictions.detach().cpu().numpy()
                     max_preds = np.argmax(predictions, axis=1)
                     scores = softmax(predictions, axis=1)
                     pred_value = [self.index2class[x] for x in max_preds]
