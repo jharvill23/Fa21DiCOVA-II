@@ -348,12 +348,13 @@ class Solver(object):
             # try:
             files = batch_data['files']
             self.G = self.G.eval()
-            if self.args.FUSION_SETUP:
-                predictions, fus = self.forward_pass(batch_data=batch_data, margin_config=False)
-                fus = fus.detach().cpu().numpy()
-                scores = softmax(predictions.detach().cpu().numpy(), axis=1)
-            else:
-                predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+            with torch.no_grad():
+                if self.args.FUSION_SETUP:
+                    predictions, fus = self.forward_pass(batch_data=batch_data, margin_config=False)
+                    fus = fus.detach().cpu().numpy()
+                    scores = softmax(predictions.detach().cpu().numpy(), axis=1)
+                else:
+                    predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
 
             if not self.args.PRETRAINING:
                 for i, file in enumerate(files):
@@ -384,11 +385,12 @@ class Solver(object):
             # try:
                 files = batch_data['files']
                 self.G = self.G.eval()
-                if self.args.FUSION_SETUP:
-                    predictions, fus = self.forward_pass(batch_data=batch_data, margin_config=False)
-                    fus = fus.detach().cpu().numpy()
-                else:
-                    predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+                with torch.no_grad():
+                    if self.args.FUSION_SETUP:
+                        predictions, fus = self.forward_pass(batch_data=batch_data, margin_config=False)
+                        fus = fus.detach().cpu().numpy()
+                    else:
+                        predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
                 loss = self.compute_loss(predictions=predictions, batch_data=batch_data, crossentropy_overwrite=True)
                 val_loss += loss.sum().item()
 
@@ -483,7 +485,7 @@ class Solver(object):
             test_files_list = test
             """Make dataloader"""
             train_data = DiCOVA_Dataset(config=self.config, params={'files': train_files_list,
-                                                                    'mode': 'train',
+                                                                    'mode': 'val',
                                                                     'metadata_object': self.metadata,
                                                                     'specaugment': self.model_hyperparameters.specaug_probability,
                                                                     'time_warp': self.args.TIME_WARP,
