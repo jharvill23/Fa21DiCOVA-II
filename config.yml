@@ -97,7 +97,7 @@ fusion:
     opensmile_dropout: 0.1
     incorrect_scaler: 1
     log_step: 10
-    model_save_step: 50
+    model_save_step: 10
     num_epochs: 1000
     batch_size: 10
     specaug_probability: 1.0

@@ -602,6 +602,109 @@ class DiCOVA_Dataset_Fusion(object):
         return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers, 'mf': mf}
 
 
+class DiCOVA_Dataset_Fusion_from_Preds(object):
+    def __init__(self, config, params):
+        """Get the data and supporting files"""
+        self.config = config
+        'Initialization'
+        self.list_IDs = params['files']
+        self.mode = params["mode"]
+        self.metadata = params['metadata_object']
+        self.best_modality_models = params["best_modality_models"]
+        self.hidden_states = params["hidden_states"]
+        self.class2index, self.index2class = utils.get_class2index_and_index2class()
+        self.mf_class2index, self.mf_index2class = utils.get_mf_class2index_and_index2class()
+        self.incorrect_scaler = self.config.post_pretraining_classifier.incorrect_scaler
+        self.specaug_probability = params['specaugment']
+        self.time_warp = params['time_warp']
+        self.input_type = params['input_type']
+        self.args = params['args']
+
+    def __len__(self):
+        'Denotes the total number of samples'
+        return len(self.list_IDs)
+
+    def __getitem__(self, index):
+        'Get the data item'
+        file = self.list_IDs[index]  # triple of three modality files, need to adjust code below
+        speech = file['speech']
+        # cough = file['cough']
+        # breathing = file['breathing']
+        if self.mode == 'train':
+            metadata = self.metadata.get_feature_metadata(speech, dataset='DiCOVA')  # all modalities have the same metadata
+            label = self.class2index[metadata['Covid_status']]
+            label = self.to_GPU(torch.from_numpy(np.asarray(label)))
+            mf = self.mf_class2index[metadata['Gender']]
+            mf = self.to_GPU(torch.from_numpy(np.asarray(mf)))
+        elif self.mode == 'val':
+            metadata = self.metadata.get_feature_metadata(speech, dataset='DiCOVA')
+            label = self.class2index[metadata['Covid_status']]
+            label = self.to_GPU(torch.from_numpy(np.asarray(label)))
+            mf = self.mf_class2index[metadata['Gender']]
+            mf = self.to_GPU(torch.from_numpy(np.asarray(mf)))
+        else:
+            metadata = None
+            label = None
+
+        """We want to load the hidden_states."""
+        keys = {}
+        keys['speech'] = file['speech'].split('/')[-1].split('.')[0]
+        keys['breathing'] = file['breathing'].split('/')[-1].split('.')[0]
+        keys['cough'] = file['cough'].split('/')[-1].split('.')[0]
+        feats_all_modalities = {}
+        for modality in ['speech', 'cough', 'breathing']:
+            feats = self.hidden_states[modality][self.mode][keys[modality]]
+
+            feats = self.to_GPU(torch.from_numpy(feats))
+            feats = feats.to(torch.float32)
+
+            feats_all_modalities[modality] = feats
+
+        """Get incorrect_scaler value"""
+        if self.mode != 'test':
+            if metadata['Covid_status'] == 'p':
+                scaler = self.incorrect_scaler
+            else:
+                scaler = 1
+            scaler = self.to_GPU(torch.from_numpy(np.asarray(scaler)))
+            scaler = scaler.to(torch.float32)
+            scaler.requires_grad = True
+        else:
+            scaler = None
+        return file, feats_all_modalities, label, scaler, mf
+
+    def to_GPU(self, tensor):
+        if self.config.use_gpu == True:
+            tensor = tensor.cuda()
+            return tensor
+        else:
+            return tensor
+
+    def collate(self, data):
+        files = [item[0] for item in data]
+        spects = [item[1] for item in data]
+        labels = [item[2] for item in data]
+        scalers = [item[3] for item in data]
+        mf = [item[4] for item in data]
+        """Need to grab each modality's features and pad those by batch size"""
+        speech = [x['speech'] for x in spects]
+        cough = [x['cough'] for x in spects]
+        breathing = [x['breathing'] for x in spects]
+        speech = pad_sequence(speech, batch_first=True, padding_value=0)
+        cough = pad_sequence(cough, batch_first=True, padding_value=0)
+        breathing = pad_sequence(breathing, batch_first=True, padding_value=0)
+        if self.mode != 'test':
+            labels = torch.stack([x for x in labels])
+            scalers = torch.stack([x for x in scalers])
+            mf = torch.stack([x for x in mf])
+        if self.input_type == 'energy':
+            speech = torch.unsqueeze(speech, dim=2)
+            cough = torch.unsqueeze(cough, dim=2)
+            breathing = torch.unsqueeze(breathing, dim=2)
+        spects = {'speech': speech, 'cough': cough, 'breathing': breathing}
+        return {'files': files, 'spects': spects, 'labels': labels, 'scalers': scalers, 'mf': mf}
+
+
 
 class DiCOVA_Test_Dataset(object):
     def __init__(self, config, params):
