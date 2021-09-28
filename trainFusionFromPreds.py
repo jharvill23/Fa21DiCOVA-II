@@ -480,6 +480,71 @@ class Solver(object):
         else:
             return val_loss, 0, 0, 0, 0
 
+    def save_train_test_hidden_states(self, gen, iterations, Train=True):
+        # saved_hidden_states = {}
+        saved_scores = {}  # probabilities!!!
+        if Train:
+            mode = 'train'
+        else:
+            mode = 'test'
+        for batch_number, batch_data in tqdm(enumerate(gen)):
+            # try:
+            files = batch_data['files']
+            self.G = self.G.eval()
+            with torch.no_grad():
+                predictions = self.forward_pass(batch_data=batch_data, margin_config=False)
+                # fus = fus.detach().cpu().numpy()
+                scores = softmax(predictions.detach().cpu().numpy(), axis=1)
+
+            if not self.args.PRETRAINING:
+                for i, file in enumerate(files):
+                    filekey = file['fusion']
+                    # if self.args.FUSION_SETUP:
+                    #     saved_hidden_states[filekey] = fus[i]
+                    score = scores[i, self.class2index['p']]
+                    saved_scores[filekey] = score
+        # if self.args.FUSION_SETUP:
+        #     dump_path_fus = os.path.join(self.val_scores_dir, mode + '_hidden_states_' + str(iterations) + '.pkl')
+        #     utils.dump(saved_hidden_states, dump_path_fus)
+        """Also save the probabilities!!! Remember the val probabilities are saved as scores_'iterations' in text format"""
+        dump_path_scores = os.path.join(self.val_scores_dir, mode + '_scores_' + str(iterations) + '.pkl')
+        utils.dump(saved_scores, dump_path_scores)
+        stop = None
+
+    def get_save_hidden_state_generators(self, train, test):
+        """"""
+        if self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS != 'margin':
+            # Adjust how often we see positive examples
+            train_files_list = train['positive'] + train['negative']
+            test_files_list = test
+            """Make dataloader"""
+            train_data = DiCOVA_Dataset_Fusion_from_Preds(config=self.config, params={'files': train_files_list,
+                                                                    'mode': 'val',
+                                                                    'metadata_object': self.metadata,
+                                                                    'best_modality_models': self.best_modality_models,
+                                                                    'hidden_states': self.hidden_states,
+                                                                    'specaugment': self.model_hyperparameters.specaug_probability,
+                                                                    'time_warp': self.args.TIME_WARP,
+                                                                    'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                    'args': self.args})
+            train_gen = data.DataLoader(train_data, batch_size=self.model_hyperparameters.batch_size,
+                                        shuffle=True, collate_fn=train_data.collate, drop_last=False)
+            self.index2class = train_data.index2class
+            self.class2index = train_data.class2index
+            test_data = DiCOVA_Dataset_Fusion_from_Preds(config=self.config, params={'files': test_files_list,
+                                                                  'mode': 'test',
+                                                                  'metadata_object': self.metadata,
+                                                                  'best_modality_models': self.best_modality_models,
+                                                                  'hidden_states': self.hidden_states,
+                                                                  'specaugment': 0.0,
+                                                                  'time_warp': self.args.TIME_WARP,
+                                                                  'input_type': self.args.MODEL_INPUT_TYPE,
+                                                                  'args': self.args})
+            test_gen = data.DataLoader(test_data, batch_size=self.model_hyperparameters.batch_size,
+                                      shuffle=True, collate_fn=test_data.collate, drop_last=False)
+            return train_gen, test_gen
+        stop = None
+
     def get_train_val_generators(self, train, val):
         """Return generators for training with different datasets"""
         if self.args.TRAIN_DATASET == 'DiCOVA' and self.args.LOSS != 'margin':
@@ -575,6 +640,30 @@ class Solver(object):
                                       shuffle=True, collate_fn=val_data.collate, drop_last=True)
             return train_gen, val_gen
 
+    def get_test_data(self):
+        filename_converter = utils.get_test_filename_converter()
+        """Hard-code the directories here. Sloppy software engineering but it's the end stretch."""
+        all_test_files = utils.collect_files('feats/DiCOVA_Test')
+        test_dict = {}
+        for file in all_test_files:
+            filename = file.split('/')[-1]
+            fileID = filename.split('_')[0]
+            modality = filename.split('_')[1].split('.')[0]
+            fusionID = filename_converter[modality][fileID]['fusion']
+            if fusionID not in test_dict:
+                test_dict[fusionID] = {}
+                test_dict[fusionID][modality] = file
+            else:
+                test_dict[fusionID][modality] = file
+        """Need to turn dictionary into list. We also want to keep the fusion name so first add that as a value"""
+        for key, value in test_dict.items():
+            value['fusion'] = key
+        test_list = []
+        for key, value in test_dict.items():
+            test_list.append(value)
+
+        return test_list
+
     def train(self):
         iterations = 0
         """Get train/test"""
@@ -600,6 +689,10 @@ class Solver(object):
                         if self.use_tensorboard:
                             self.logger.add_scalar('loss', normalized_loss, iterations)
                     if iterations % self.model_save_step == 0:
+                        test = self.get_test_data()
+                        save_train_gen, save_test_gen = self.get_save_hidden_state_generators(train, test)
+                        self.save_train_test_hidden_states(save_test_gen, iterations=iterations, Train=False)
+                        # self.save_train_test_hidden_states(save_train_gen, iterations=iterations, Train=True)
                         """Calculate validation loss"""
                         val_loss, Prec, Rec, acc, auc = self.val_loss(val=val_gen, iterations=iterations)
                         print(str(iterations) + ', val_loss: ' + str(val_loss))
@@ -877,6 +970,7 @@ class Solver(object):
         a_file.close()
 
 def main(args):
+    dum = utils.load('exps/dummy_fusion_spect_from_preds_fold1_2/val_scores/test_scores_20.pkl')
     solver = Solver(config=config, args=args)
     if args.TRAIN:
         solver.train()
@@ -884,7 +978,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_fusion_spect_from_preds_fold1')
+    parser.add_argument('--TRIAL', type=str, default='dummy_fusion_spect_from_preds_fold1_2')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='1')

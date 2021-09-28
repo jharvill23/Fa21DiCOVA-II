@@ -645,6 +645,7 @@ class DiCOVA_Dataset_Fusion_from_Preds(object):
         else:
             metadata = None
             label = None
+            mf = None
 
         """We want to load the hidden_states."""
         keys = {}
