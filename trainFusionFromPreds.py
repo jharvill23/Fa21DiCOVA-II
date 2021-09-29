@@ -978,10 +978,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='dummy_fusion_spect_from_preds_fold1_2')
+    parser.add_argument('--TRIAL', type=str, default='fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold0')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
-    parser.add_argument('--FOLD', type=str, default='1')
+    parser.add_argument('--FOLD', type=str, default='0')
     parser.add_argument('--RESTORE_PATH', type=str, default='')
     parser.add_argument('--RESTORE_SPEECH_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
     parser.add_argument('--RESTORE_COUGH_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
