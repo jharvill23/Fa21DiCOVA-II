@@ -970,7 +970,7 @@ class Solver(object):
         a_file.close()
 
 def main(args):
-    dum = utils.load('exps/dummy_fusion_spect_from_preds_fold1_2/val_scores/test_scores_20.pkl')
+    # dum = utils.load('exps/dummy_fusion_spect_from_preds_fold1_2/val_scores/test_scores_20.pkl')
     solver = Solver(config=config, args=args)
     if args.TRAIN:
         solver.train()
@@ -978,7 +978,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold0')
+    parser.add_argument('--TRIAL', type=str, default='fusion_SAVE_VALloss_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold1')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=True)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default='0')
@@ -1004,7 +1004,7 @@ if __name__ == "__main__":
     parser.add_argument('--TRAIN_CLIP_FRACTION_BREATHING', type=float, default=0.3)
     parser.add_argument('--INCLUDE_MF', type=utils.str2bool, default=False)  # include male/female metadata
     parser.add_argument('--USE_TENSORBOARD', type=utils.str2bool, default=True)  # whether to make tb file
-    parser.add_argument('--SAVE_METRIC', type=str, default='AUC')
-    parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=True)
+    parser.add_argument('--SAVE_METRIC', type=str, default='val_loss')  # change to val_loss for this attempt
+    parser.add_argument('--MAXIMIZE', type=utils.str2bool, default=False)
     args = parser.parse_args()
     main(args)

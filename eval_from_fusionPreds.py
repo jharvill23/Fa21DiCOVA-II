@@ -21,10 +21,11 @@ from scipy.special import softmax
 import argparse
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-test_preds_folder = os.path.join('evals', 'fusion_from_preds1')
+test_preds_folder = os.path.join('evals', 'fusion_from_preds2_bestvalloss_confidence_boosting_0dot6_and_0dot4')
 if not os.path.exists(test_preds_folder):
     os.mkdir(test_preds_folder)
 
+### Using best validation LOSS as the metric ###
 # Manually put the best ones here from tensorboard
 val_score_paths = ['exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold1/val_scores/scores_30',
                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold2/val_scores/scores_30',
@@ -40,6 +41,20 @@ test_score_paths = ['exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecau
                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold4/val_scores/test_scores_110.pkl',
                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold0/val_scores/test_scores_30.pkl']
 
+# ### Using best validation AUC as the metric ###
+#
+# val_score_paths = ['exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold1/val_scores/scores_110',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold2/val_scores/scores_70',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold3/val_scores/scores_20',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold4/val_scores/scores_180',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold0/val_scores/scores_80']
+#
+# # Manually put the best ones here from tensorboard
+# test_score_paths = ['exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold1/val_scores/test_scores_110.pkl',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold2/val_scores/test_scores_70.pkl',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold3/val_scores/test_scores_20.pkl',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold4/val_scores/test_scores_180.pkl',
+#                    'exps/fusion_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy_frompreds_fold0/val_scores/test_scores_80.pkl']
 
 """Put all the val scores into one file"""
 all_val_scores_dict = {}
@@ -82,9 +97,52 @@ for file in test_score_paths:
         else:
             test_scores[key].append(value)
 """Need to take the mean of each list"""
+total_upcounts = 0
+total_downcounts = 0
 for key, value in test_scores.items():
-    value = np.mean(np.asarray(value))
+    """Let's push the more confident ones to the extreme"""
+    push_factor = 0.9
+    up_threshold = 0.6  # was 0.8
+    down_threshold = 0.4  # was 0.2
+    upcount = 0
+    downcount = 0
+    upcount_scores = []
+    downcount_scores = []
+    for x in value:
+        if x >= up_threshold:
+            upcount += 1
+            upcount_scores.append(x)
+        elif x <= down_threshold:
+            downcount += 1
+            downcount_scores.append(x)
+    if upcount >= 4:
+        original_prob = np.mean(np.asarray(upcount_scores))
+        new_prob = original_prob + (1-original_prob)*push_factor
+        value = new_prob
+        total_upcounts += 1
+    elif downcount >= 4:
+        original_prob = np.mean(np.asarray(downcount_scores))
+        new_prob = original_prob - (original_prob) * push_factor
+        value = new_prob
+        total_downcounts += 1
+    else:
+        value = np.mean(np.asarray(value))
     test_scores[key] = float(value)
+
+"""Let's analyze the distribution of scores"""
+distribution = {'confident_no': [], 'confident_yes': [], 'unsure_no': [], 'unsure_yes': []}
+for key, value in test_scores.items():
+    if 0 <= value <= 0.1:
+        distribution['confident_no'].append({key: value})
+    elif 0.1 < value < 0.5:
+        distribution['unsure_no'].append({key: value})
+    elif 0.5 <= value < 0.9:
+        distribution['unsure_yes'].append({key: value})
+    else:
+        distribution['confident_yes'].append({key: value})
+
+
+
 file_FINAL_scores_dict = {}
 for key, mean in test_scores.items():
     # file_FINAL_scores.append(key + ' ' + str(sum))
