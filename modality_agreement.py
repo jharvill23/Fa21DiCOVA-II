@@ -682,6 +682,43 @@ class Solver(object):
         json.dump(dict, a_file, indent=2)
         a_file.close()
 
+def TPR_FPR(gt, pred):
+    TP = 0
+    TN = 0
+    FP = 0
+    FN = 0
+    for key, prediction in pred.items():
+        if gt[key] == 'p':
+            if prediction == 'p':
+                TP += 1
+            elif prediction == 'n':
+                FN += 1
+        elif gt[key] == 'n':
+            if prediction == 'n':
+                TN += 1
+            elif prediction == 'p':
+                FP += 1
+    TPR = TP / (TP + FN)
+    FPR = FP / (FP + TN)
+    return TPR, FPR
+
+
+def get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores):
+    """First get subset of samples where all modalities agree"""
+    subset_samples = {}
+    for key, label in ground_truth_scores.items():
+        label_list = []
+        for mod in modalities:
+            label_list.append(temp_labels[mod][key])
+        label_list = list(set(label_list))
+        if len(label_list) == 2:
+            """Modalities did not agree, ignore this sample"""
+        elif len(label_list) == 1:
+            subset_samples[key] = label_list[0]
+    fraction_kept = len(subset_samples) / len(ground_truth_scores)
+    TPR, FPR = TPR_FPR(gt=ground_truth_scores, pred=subset_samples)
+    return TPR, FPR, fraction_kept
+
 def main(args):
     # dum = utils.load('exps/dummy_fusion_spect_from_preds_fold1_2/val_scores/test_scores_20.pkl')
     # solver = Solver(config=config, args=args)
@@ -714,25 +751,53 @@ def main(args):
             stop = None
             # fold_probs[modality].append(solver.text_to_score_dict(score_path))
     """Now we want to go through 100 thresholds and see what the TPR and FPR are for the agreement sets"""
-    agreement_sets = {'S': ['speech'],
+    agreement_sets = {'S+B+C': ['speech', 'breathing', 'cough'],
+                      'S': ['speech'],
                       'B': ['breathing'],
                       'C': ['cough'],
                       'S+B': ['speech', 'breathing'],
                       'S+C': ['speech', 'cough'],
                       'C+B': ['cough', 'breathing'],
-                      'S+B+C': ['speech', 'breathing', 'cough']}
-
+                      }
+    agreement_TPR_FPR = {}
     for threshold in np.linspace(start=0, stop=1, num=101):
+        agreement_TPR_FPR[threshold] = {'S+B+C': {},
+                                        'S': {},
+                                        'B': {},
+                                        'C': {},
+                                        'S+B': {},
+                                        'S+C': {},
+                                        'C+B': {}
+                                        }
         """Convert probabilities to labels at given threshold"""
         temp_labels = {'speech': {}, 'cough': {}, 'breathing': {}}
         for modality in ['speech', 'cough', 'breathing']:
-            for key, value in fold_probs[modality]:
+            for key, value in fold_probs[modality].items():
                 if value >= threshold:
                     temp_labels[modality][key] = 'p'
                 else:
                     temp_labels[modality][key] = 'n'
+        for key, modalities in agreement_sets.items():
+            TPR, FPR, fraction_kept = get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores)
+            plot_points = [FPR, TPR]
+            agreement_TPR_FPR[threshold][key] = {'TPR': TPR, 'FPR': FPR, 'fraction_kept': fraction_kept, 'plot_points': plot_points}
+
+            stop = None
         stop = None
-    stop = None
+    """Let's do a scatter plot of the S+B+C scenario of all TPR and FPR points"""
+    for modality_agreement_key, _ in agreement_TPR_FPR[0].items():
+        point_set = []
+        fractions = []
+        for threshold, agreement_dict in agreement_TPR_FPR.items():
+            point_set.append(agreement_dict[modality_agreement_key]['plot_points'])
+            fractions.append([threshold, agreement_dict[modality_agreement_key]['fraction_kept']])
+        point_set = np.asarray(point_set)
+        plt.scatter(point_set[:, 0], point_set[:, 1])
+        plt.show()
+        fractions = np.asarray(fractions)
+        plt.plot(fractions[:, 0], fractions[:, 1])
+        plt.show()
+        stop = None
 
 
 if __name__ == "__main__":
