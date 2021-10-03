@@ -731,108 +731,20 @@ def get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores):
 def main(args):
     # dum = utils.load('exps/dummy_fusion_spect_from_preds_fold1_2/val_scores/test_scores_20.pkl')
     # solver = Solver(config=config, args=args)
-    fold_probs = {'speech': {}, 'cough': {}, 'breathing': {}}
-    ground_truth_scores = {}
+    modality_scores = {'speech': [], 'cough': [], 'breathing': []}
     for fold in tqdm(['0', '1', '2', '3', '4']):
         args.FOLD = fold
         solver = Solver(config=config, args=args)
         """Collect the probabilties of validation scores for each fold based on solver.best_modality_models"""
         for modality in ['speech', 'cough', 'breathing']:
-            """Get the scores file"""
-            exp_path = os.path.join(*solver.best_modality_models[modality].split('/')[:-2])
-            model_num = solver.best_modality_models[modality].split('/')[-1].split('-')[0]
-            score_path = os.path.join(exp_path, 'val_scores', 'scores_' + model_num)
-            assert os.path.exists(score_path)
-            gt_path = os.path.join(exp_path, 'val_scores', 'val_labels_' + model_num)
-            assert os.path.exists(gt_path)
-            scores = solver.text_to_score_dict(score_path)
-            gt_scores = solver.text_to_score_dict(gt_path, labels=True)
-            for key, score in scores.items():
-                key = key.split('_')[0]
-                if key not in fold_probs[modality]:
-                    fold_probs[modality][key] = score
-                else:
-                    """Overlap in validation issue, hopefully not present in data... ---> confirmed this doesn't happen"""
-                if key not in ground_truth_scores:
-                    ground_truth_scores[key] = gt_scores[key + '_' + modality]
-                    stop = None
+            modality_scores[modality].append(solver.best_metrics[modality])
+    print('Speech: ' + str(round(np.mean(np.asarray(modality_scores['speech'])), 2)))
+    print('Breathing: ' + str(round(np.mean(np.asarray(modality_scores['breathing'])), 2)))
+    print('Cough: ' + str(round(np.mean(np.asarray(modality_scores['cough'])), 2)))
+    stop = None
 
-            stop = None
-            # fold_probs[modality].append(solver.text_to_score_dict(score_path))
-    """Now we want to go through 100 thresholds and see what the TPR and FPR are for the agreement sets"""
-    agreement_sets = {'S+B+C': ['speech', 'breathing', 'cough'],
-                      'S': ['speech'],
-                      'B': ['breathing'],
-                      'C': ['cough'],
-                      'S+B': ['speech', 'breathing'],
-                      'S+C': ['speech', 'cough'],
-                      'C+B': ['cough', 'breathing'],
-                      }
-    agreement_TPR_FPR = {}
-    for threshold in np.linspace(start=0, stop=1, num=101):
-        agreement_TPR_FPR[threshold] = {'S+B+C': {},
-                                        'S': {},
-                                        'B': {},
-                                        'C': {},
-                                        'S+B': {},
-                                        'S+C': {},
-                                        'C+B': {}
-                                        }
-        """Convert probabilities to labels at given threshold"""
-        temp_labels = {'speech': {}, 'cough': {}, 'breathing': {}}
-        for modality in ['speech', 'cough', 'breathing']:
-            for key, value in fold_probs[modality].items():
-                if value >= threshold:
-                    temp_labels[modality][key] = 'p'
-                else:
-                    temp_labels[modality][key] = 'n'
-        for key, modalities in agreement_sets.items():
-            TPR, FPR, fraction_kept, Prec, Rec = get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores)
-            plot_points = [FPR, TPR]
-            sensitivity = TPR
-            specificity = 1 - FPR
-            eps = 0.000000000001
-            F1 = 2 * (Prec * Rec) / (Prec + Rec + eps)
-            agreement_TPR_FPR[threshold][key] = {'TPR': TPR, 'FPR': FPR, 'fraction_kept': fraction_kept,
-                                                 'plot_points': plot_points, 'sens': sensitivity, 'spec': specificity,
-                                                 'F1': F1, 'Prec': Prec, 'Rec': Rec}
 
-            stop = None
-        stop = None
-    """Print numbers for Table 2"""
-    T33 = agreement_TPR_FPR[0.33]
-    T66 = agreement_TPR_FPR[0.66]
-    T25 = agreement_TPR_FPR[0.1]
-    T50 = agreement_TPR_FPR[0.2]
-    T75 = agreement_TPR_FPR[0.3]
-    for modality_agreement_key, _ in T33.items():
-        print(modality_agreement_key + ' & ' + str(round(T33[modality_agreement_key]['sens'], 2)) + ' & ' + \
-              str(round(T33[modality_agreement_key]['spec'], 2)) + ' & ' + str(round(T33[modality_agreement_key]['fraction_kept'], 2)) + \
-              ' & ' + str(round(T66[modality_agreement_key]['sens'], 2)) + ' & ' + \
-              str(round(T66[modality_agreement_key]['spec'], 2)) + ' & ' + str(round(T66[modality_agreement_key]['fraction_kept'], 2)) + ' \\\ \\hline'
-              )
-    print ('*****************************')
-    keys = ['S+B+C', 'S+B', 'S+C', 'C+B', 'S', 'B', 'C']
-    for modality_agreement_key in keys:
-        print(modality_agreement_key + ' & ' + str(round(T25[modality_agreement_key]['F1'], 2)) + ' & ' + \
-              str(int(round(T25[modality_agreement_key]['fraction_kept'], 2)*100)) + ' & ' + str(round(T50[modality_agreement_key]['F1'], 2)) + \
-              ' & ' + str(int(round(T50[modality_agreement_key]['fraction_kept'], 2) * 100)) + ' & ' + \
-              str(round(T75[modality_agreement_key]['F1'], 2)) + ' & ' + str(int(round(T75[modality_agreement_key]['fraction_kept'], 2) * 100)) + ' \\\ \\hline'
-              )
-    """Let's do a scatter plot of the S+B+C scenario of all TPR and FPR points"""
-    for modality_agreement_key, _ in agreement_TPR_FPR[0].items():
-        point_set = []
-        fractions = []
-        for threshold, agreement_dict in agreement_TPR_FPR.items():
-            point_set.append(agreement_dict[modality_agreement_key]['plot_points'])
-            fractions.append([threshold, agreement_dict[modality_agreement_key]['fraction_kept']])
-        point_set = np.asarray(point_set)
-        # plt.scatter(point_set[:, 0], point_set[:, 1])
-        # plt.show()
-        # fractions = np.asarray(fractions)
-        # plt.plot(fractions[:, 0], fractions[:, 1])
-        # plt.show()
-        stop = None
+
 
 
 if __name__ == "__main__":
@@ -845,9 +757,9 @@ if __name__ == "__main__":
     parser.add_argument('--RESTORE_SPEECH_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
     parser.add_argument('--RESTORE_COUGH_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
     parser.add_argument('--RESTORE_BREATHING_PRETRAINER_PATH', type=str, default='exps/breathing_pretrain_10ff_spect_APC/models/75000-G.ckpt')
-    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
-    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
-    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_energy_crossentropy')
+    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_energy_crossentropy')
+    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_energy_crossentropy')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
