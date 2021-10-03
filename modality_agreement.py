@@ -700,7 +700,10 @@ def TPR_FPR(gt, pred):
                 FP += 1
     TPR = TP / (TP + FN)
     FPR = FP / (FP + TN)
-    return TPR, FPR
+    eps = 0.00000000001
+    Prec = TP / (TP + FP + eps)
+    Rec = TPR
+    return TPR, FPR, Prec, Rec
 
 
 def get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores):
@@ -716,8 +719,8 @@ def get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores):
         elif len(label_list) == 1:
             subset_samples[key] = label_list[0]
     fraction_kept = len(subset_samples) / len(ground_truth_scores)
-    TPR, FPR = TPR_FPR(gt=ground_truth_scores, pred=subset_samples)
-    return TPR, FPR, fraction_kept
+    TPR, FPR , Prec, Rec = TPR_FPR(gt=ground_truth_scores, pred=subset_samples)
+    return TPR, FPR, fraction_kept, Prec, Rec
 
 def main(args):
     # dum = utils.load('exps/dummy_fusion_spect_from_preds_fold1_2/val_scores/test_scores_20.pkl')
@@ -778,12 +781,38 @@ def main(args):
                 else:
                     temp_labels[modality][key] = 'n'
         for key, modalities in agreement_sets.items():
-            TPR, FPR, fraction_kept = get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores)
+            TPR, FPR, fraction_kept, Prec, Rec = get_agreement_TPR_FPR(temp_labels, modalities, ground_truth_scores)
             plot_points = [FPR, TPR]
-            agreement_TPR_FPR[threshold][key] = {'TPR': TPR, 'FPR': FPR, 'fraction_kept': fraction_kept, 'plot_points': plot_points}
+            sensitivity = TPR
+            specificity = 1 - FPR
+            eps = 0.000000000001
+            F1 = 2 * (Prec * Rec) / (Prec + Rec + eps)
+            agreement_TPR_FPR[threshold][key] = {'TPR': TPR, 'FPR': FPR, 'fraction_kept': fraction_kept,
+                                                 'plot_points': plot_points, 'sens': sensitivity, 'spec': specificity,
+                                                 'F1': F1, 'Prec': Prec, 'Rec': Rec}
 
             stop = None
         stop = None
+    """Print numbers for Table 2"""
+    T33 = agreement_TPR_FPR[0.33]
+    T66 = agreement_TPR_FPR[0.66]
+    T25 = agreement_TPR_FPR[0.1]
+    T50 = agreement_TPR_FPR[0.2]
+    T75 = agreement_TPR_FPR[0.3]
+    for modality_agreement_key, _ in T33.items():
+        print(modality_agreement_key + ' & ' + str(round(T33[modality_agreement_key]['sens'], 2)) + ' & ' + \
+              str(round(T33[modality_agreement_key]['spec'], 2)) + ' & ' + str(round(T33[modality_agreement_key]['fraction_kept'], 2)) + \
+              ' & ' + str(round(T66[modality_agreement_key]['sens'], 2)) + ' & ' + \
+              str(round(T66[modality_agreement_key]['spec'], 2)) + ' & ' + str(round(T66[modality_agreement_key]['fraction_kept'], 2)) + ' \\\ \\hline'
+              )
+    print ('*****************************')
+    keys = ['S+B+C', 'S+B', 'S+C', 'C+B', 'S', 'B', 'C']
+    for modality_agreement_key in keys:
+        print(modality_agreement_key + ' & ' + str(round(T25[modality_agreement_key]['F1'], 2)) + ' & ' + \
+              str(int(round(T25[modality_agreement_key]['fraction_kept'], 2)*100)) + ' & ' + str(round(T50[modality_agreement_key]['F1'], 2)) + \
+              ' & ' + str(int(round(T50[modality_agreement_key]['fraction_kept'], 2) * 100)) + ' & ' + \
+              str(round(T75[modality_agreement_key]['F1'], 2)) + ' & ' + str(int(round(T75[modality_agreement_key]['fraction_kept'], 2) * 100)) + ' \\\ \\hline'
+              )
     """Let's do a scatter plot of the S+B+C scenario of all TPR and FPR points"""
     for modality_agreement_key, _ in agreement_TPR_FPR[0].items():
         point_set = []
@@ -792,11 +821,11 @@ def main(args):
             point_set.append(agreement_dict[modality_agreement_key]['plot_points'])
             fractions.append([threshold, agreement_dict[modality_agreement_key]['fraction_kept']])
         point_set = np.asarray(point_set)
-        plt.scatter(point_set[:, 0], point_set[:, 1])
-        plt.show()
-        fractions = np.asarray(fractions)
-        plt.plot(fractions[:, 0], fractions[:, 1])
-        plt.show()
+        # plt.scatter(point_set[:, 0], point_set[:, 1])
+        # plt.show()
+        # fractions = np.asarray(fractions)
+        # plt.plot(fractions[:, 0], fractions[:, 1])
+        # plt.show()
         stop = None
 
 
