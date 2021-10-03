@@ -131,11 +131,14 @@ class Solver(object):
             filename = str(timestep) + '-G.ckpt'
             model_path = os.path.join(exp_root, 'models', filename)
             assert os.path.exists(model_path)
-            keep_model_paths.append(model_path)
+            metric_value = pair['metric_value']
+            datum = {'model_path': model_path, 'metric_value': metric_value}
+            keep_model_paths.append(datum)
         return keep_model_paths
 
     def get_best_modality_models(self):
         self.best_modality_models = {}
+        self.best_metrics = {}
         for modality in ['speech', 'cough', 'breathing']:
             if modality == 'speech':
                 tb_dir = os.path.join(self.args.RESTORE_SPEECH_FINETUNED_EXP_PATH + '_fold' + self.args.FOLD, 'logs')
@@ -149,8 +152,11 @@ class Solver(object):
             tb_path = utils.collect_files(tb_dir)
             assert len(tb_path) == 1
             tb_path = tb_path[0]
-            best_model = self.tensorboard_best_models(tb_file=tb_path, exp_root=exp_root)[0]
+            best_model_ = self.tensorboard_best_models(tb_file=tb_path, exp_root=exp_root)[0]
+            best_model = best_model_['model_path']
+            best_metric = best_model_['metric_value']
             self.best_modality_models[modality] = best_model
+            self.best_metrics[modality] = best_metric
 
     def get_absolute_filepaths(self, files):
         new_files = []
@@ -796,15 +802,9 @@ def main(args):
     """Print numbers for Table 2"""
     T33 = agreement_TPR_FPR[0.33]
     T66 = agreement_TPR_FPR[0.66]
-    # T25 = agreement_TPR_FPR[0.1]
-    # T50 = agreement_TPR_FPR[0.2]
-    # T75 = agreement_TPR_FPR[0.3]
-    # T25 = agreement_TPR_FPR[0.2]
-    # T50 = agreement_TPR_FPR[0.4]
-    # T75 = agreement_TPR_FPR[0.6]
-    T25 = agreement_TPR_FPR[0.25]
-    T50 = agreement_TPR_FPR[0.5]
-    T75 = agreement_TPR_FPR[0.75]
+    T25 = agreement_TPR_FPR[0.1]
+    T50 = agreement_TPR_FPR[0.2]
+    T75 = agreement_TPR_FPR[0.3]
     for modality_agreement_key, _ in T33.items():
         print(modality_agreement_key + ' & ' + str(round(T33[modality_agreement_key]['sens'], 2)) + ' & ' + \
               str(round(T33[modality_agreement_key]['spec'], 2)) + ' & ' + str(round(T33[modality_agreement_key]['fraction_kept'], 2)) + \
@@ -837,7 +837,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Arguments to train classifier')
-    parser.add_argument('--TRIAL', type=str, default='modality_agreement')
+    parser.add_argument('--TRIAL', type=str, default='spect_vs_energy')
     parser.add_argument('--TRAIN', type=utils.str2bool, default=False)
     parser.add_argument('--LOAD_MODEL', type=utils.str2bool, default=False)
     parser.add_argument('--FOLD', type=str, default=None)
@@ -845,9 +845,9 @@ if __name__ == "__main__":
     parser.add_argument('--RESTORE_SPEECH_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
     parser.add_argument('--RESTORE_COUGH_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
     parser.add_argument('--RESTORE_BREATHING_PRETRAINER_PATH', type=str, default='exps/breathing_pretrain_10ff_spect_APC/models/75000-G.ckpt')
-    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
-    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
-    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_SAVE_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
