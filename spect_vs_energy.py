@@ -757,9 +757,9 @@ if __name__ == "__main__":
     parser.add_argument('--RESTORE_SPEECH_PRETRAINER_PATH', type=str, default='exps/speech_pretrain_10ff_spect_APC/models/170000-G.ckpt')
     parser.add_argument('--RESTORE_COUGH_PRETRAINER_PATH', type=str, default='exps/cough_pretrain_10ff_spect_APC/models/100000-G.ckpt')
     parser.add_argument('--RESTORE_BREATHING_PRETRAINER_PATH', type=str, default='exps/breathing_pretrain_10ff_spect_APC/models/75000-G.ckpt')
-    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_energy_crossentropy')
-    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_energy_crossentropy')
-    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_energy_crossentropy')
+    parser.add_argument('--RESTORE_SPEECH_FINETUNED_EXP_PATH', type=str, default='exps/speech_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_COUGH_FINETUNED_EXP_PATH', type=str, default='exps/cough_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
+    parser.add_argument('--RESTORE_BREATHING_FINETUNED_EXP_PATH', type=str, default='exps/breathing_ablation_noMF_LSTM_yespretrain_notimewarp_yesspecaug_spect_crossentropy')
     parser.add_argument('--PRETRAINING', type=utils.str2bool, default=False)
     parser.add_argument('--FROM_PRETRAINING', type=utils.str2bool, default=True)
     parser.add_argument('--LOSS', type=str, default='crossentropy')  # crossentropy, APC, margin
